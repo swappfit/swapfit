@@ -1,0 +1,549 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// --- User & Profile Models ---
+
+model User {
+  id                    String                   @id @default(cuid())
+  email                 String                   @unique
+  password              String?
+  provider              String
+  providerId            String?
+  auth0_id              String?                  @unique
+  resetToken            String?
+  resetTokenExpiry      DateTime?
+  role                  String?
+  isAdmin               Boolean                  @default(false)
+  chargebeeCustomerId   String?                  @unique
+  memberProfile         MemberProfile?
+  trainerProfile        TrainerProfile?
+  multiGymProfile       MultiGymMemberProfile?
+  merchantProfile       MerchantProfile?
+  managedGyms           Gym[]                    @relation("GymManager")
+  subscriptions         Subscription[]
+  checkIns              CheckIn[]
+  workoutSessions       WorkoutSession[]
+  dietLogs              DietLog[]
+  healthSyncs           HealthSync[]
+  stepCounts            StepCount[]
+  sleepSessions         SleepSession[]
+  heartRates            HeartRate[]
+  assignedTrainingPlans TrainingPlanAssignment[] @relation("MemberAssignments")
+  conversations         Conversation[]           @relation("ConversationParticipants")
+  sentMessages          Message[]                @relation("MessageSender")
+  notifications         Notification[]
+  transactions          Transaction[]
+  challengeEntries      ChallengeParticipant[]
+  createdChallenges     Challenge[]              @relation("UserCreatedChallenges")
+  posts                 Post[]                   @relation("UserPosts")
+  comments              Comment[]                @relation("UserComments")
+  orders                Order[]
+  cartItems             CartItem[]
+  bookings              Booking[]
+  fcmTokens             FcmToken[]
+  paymentMethods        PaymentMethod[]
+  likes Like[]
+}
+
+model MemberProfile {
+  id               String  @id @default(cuid())
+  user             User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           String  @unique
+  name             String?
+  age              Int?
+  gender           String?
+  weight           Float?
+  height           Float?
+  healthConditions String?
+  fitnessGoal      String?
+}
+
+model TrainerProfile {
+  id               String                   @id @default(cuid())
+  user             User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           String                   @unique
+  bio              String?
+  experience       Int?
+  gallery          Json
+  plans            TrainerPlan[]
+  trainingPlans    TrainingPlan[]
+  assignedPlans    TrainingPlanAssignment[]
+  hostedChallenges Challenge[]              @relation("TrainerHostedChallenges")
+  gyms             Gym[]                    @relation("GymTrainers")
+}
+
+model MultiGymMemberProfile {
+  id     String @id @default(cuid())
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String @unique
+  tier   String
+}
+model MerchantProfile {
+  id          String    @id @default(cuid())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String    @unique
+  storeName   String
+  description String?
+  address     String?
+  phone       String?
+  products    Product[] // A merchant can have many products
+}
+
+// --- Gym & Tier Models ---
+
+model Gym {
+  id                String           @id @default(cuid())
+  name              String
+  latitude          Float?
+  longitude         Float?
+  address           String?
+  photos            Json
+  facilities        Json
+  manager           User             @relation("GymManager", fields: [managerId], references: [id])
+  managerId         String   @unique
+  plans             GymPlan[]
+  schedules         Schedule[]
+  status            String           @default("pending")
+  badges            Json?
+  dailyPassPrice    Float?
+  weeklyPassPrice   Float?
+  checkIns          CheckIn[]
+  sentNotifications Notification[]
+  trainers          TrainerProfile[] @relation("GymTrainers")
+  bookings          Booking[]
+  hostedChallenges  Challenge[]      @relation("GymHostedChallenges") // ✅ CORRECTED
+  multiGymTier      MultiGymTier?    @relation(fields: [multiGymTierId], references: [id])
+  multiGymTierId    String?
+
+  @@map("Gym")
+}
+
+model MultiGymTier {
+  id              String         @id @default(cuid())
+  name            String         @unique
+  price           Float
+  chargebeePlanId String?        @unique
+  gyms            Gym[]
+  subscriptions   Subscription[]
+}
+
+// --- Plan & Subscription Models ---
+
+model GymPlan {
+  id              String         @id @default(cuid())
+  gym             Gym            @relation(fields: [gymId], references: [id])
+  gymId           String
+  name            String
+  price           Float
+  duration        String
+  subscriptions   Subscription[]
+  chargebeePlanId String?        @unique
+  priceCreated     Boolean   @default(false)
+}
+
+model TrainerPlan {
+  id                String         @id @default(cuid())
+  trainer           TrainerProfile @relation(fields: [trainerProfileId], references: [id])
+  trainerProfileId  String
+  name              String
+  price             Float
+  duration          String
+  subscriptions     Subscription[]
+  chargebeePlanId   String?        @unique
+  trialEnabled      Boolean        @default(false)
+  trialDurationDays Int?
+  priceCreated     Boolean   @default(false)
+}
+
+model Subscription {
+  id                      String        @id @default(cuid())
+  user                    User          @relation(fields: [userId], references: [id])
+  userId                  String
+  status                  String
+  startDate               DateTime      @default(now())
+  endDate                 DateTime
+  gymPlan                 GymPlan?      @relation(fields: [gymPlanId], references: [id])
+  gymPlanId               String?
+  trainerPlan             TrainerPlan?  @relation(fields: [trainerPlanId], references: [id])
+  trainerPlanId           String?
+  multiGymTier            MultiGymTier? @relation(fields: [multiGymTierId], references: [id])
+  multiGymTierId          String?
+  chargebeeSubscriptionId String?       @unique
+
+  @@index([userId, status])
+}
+
+// --- Activity & Logging Models ---
+
+model CheckIn {
+  id       String    @id @default(cuid())
+  user     User      @relation(fields: [userId], references: [id])
+  userId   String
+  gym      Gym       @relation(fields: [gymId], references: [id])
+  gymId    String
+  checkIn  DateTime  @default(now())
+  checkOut DateTime?
+}
+
+model Schedule {
+  id          String @id @default(cuid())
+  gym         Gym    @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  gymId       String
+  className   String
+  trainerName String?
+  day         String
+  startTime   String
+  endTime     String
+  capacity    Int
+  enrolled    Int    @default(0)
+  location    String?
+  type        String?
+  status      String @default("Active")
+  createdAt   DateTime @default(now())
+}
+
+model Exercise {
+  id   String       @id @default(cuid())
+  name String       @unique
+  type String
+  logs WorkoutLog[]
+}
+
+model WorkoutSession {
+  id     String       @id @default(cuid())
+  user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  date   DateTime     @default(now())
+  logs   WorkoutLog[]
+  workoutType  String? // e.g., 'Strength Training', 'Cardio'
+  workoutName  String? // e.g., 'Upper Body Push'
+  duration     Int? // Total duration in minutes
+  intensity    String? // e.g., 'low', 'medium', 'high'
+  notes        String? // General notes for the whole workout
+  muscleGroups Json // ✅ CHANGED from String[] to Json
+  equipment    Json // ✅ CHANGED from String[] to Json
+  @@index([userId, date])
+}
+
+model WorkoutLog {
+  id         String         @id @default(cuid())
+  session    WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId  String
+  exercise   Exercise       @relation(fields: [exerciseId], references: [id])
+  exerciseId String
+  sets       Int?
+  reps       Int?
+  weight     Float?
+  duration   Int? // <-- This field can likely be removed as duration is now on the session
+  
+  // --- ADD THIS FIELD ---
+  notes      String? // Specific notes for this exercise set
+}
+
+model DietLog {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  mealType  String
+   // --- MODIFIED FIELDS ---
+  mealName  String   // Renamed from foodName for consistency with UI
+  photoUrl  String?
+  calories  Int
+  protein   Int?     @default(0) // Changed from Float to Int (grams are usually whole numbers)
+  carbs     Int?     @default(0) // Changed from Float to Int
+  fats      Int?     @default(0) // Renamed from 'fat' and changed to Int
+
+  // --- NEW FIELDS ---
+  fiber     Int?     @default(0) // To match the UI form
+  sugar     Int?     @default(0) // To match the UI form
+  notes     String? 
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  
+}
+
+// --- Health Sync Models ---
+
+model HealthSync {
+  id       String   @id @default(cuid())
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId   String
+  dataType String
+  lastSync DateTime
+
+  @@unique([userId, dataType])
+}
+
+model StepCount {
+  id     String   @id @default(cuid())
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  date   DateTime
+  value  Int
+  source String
+
+  @@unique([userId, date, source])
+}
+
+model SleepSession {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  startDate DateTime
+  endDate   DateTime
+  source    String
+
+  @@unique([userId, startDate, source])
+}
+
+model HeartRate {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  timestamp DateTime
+  value     Int
+  source    String
+
+  @@unique([userId, timestamp, source])
+}
+
+// --- Training Plan Models ---
+
+model TrainingPlan {
+  id               String                   @id @default(cuid())
+  trainer          TrainerProfile           @relation(fields: [trainerProfileId], references: [id], onDelete: Cascade)
+  trainerProfileId String
+  name             String
+  description      String?
+  duration         Int
+  workoutsJson     Json
+  assignments      TrainingPlanAssignment[]
+}
+
+model TrainingPlanAssignment {
+  id               String         @id @default(cuid())
+  plan             TrainingPlan   @relation(fields: [planId], references: [id])
+  planId           String
+  member           User           @relation("MemberAssignments", fields: [memberId], references: [id], onDelete: Cascade)
+  memberId         String
+  trainer          TrainerProfile @relation(fields: [trainerProfileId], references: [id])
+  trainerProfileId String
+  startDate        DateTime
+  endDate          DateTime
+  status           String
+
+  @@unique([planId, memberId, startDate])
+}
+
+// --- Communication & Notification Models ---
+
+model Conversation {
+  id           String    @id @default(cuid())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  messages     Message[]
+  participants User[]    @relation("ConversationParticipants")
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  createdAt      DateTime     @default(now())
+  content        String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversationId String
+  sender         User         @relation("MessageSender", fields: [senderId], references: [id])
+  senderId       String
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  recipient   User     @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  recipientId String
+  title       String
+  message     String
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  sentByGym   Gym?     @relation(fields: [gymId], references: [id])
+  gymId       String?
+
+  @@index([recipientId])
+}
+
+model FcmToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// --- Payment & E-commerce Models ---
+
+model PaymentMethod {
+  id             String  @id @default(cuid())
+  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
+  providerToken  String  @unique
+  cardType       String
+  lastFourDigits String
+  isDefault      Boolean @default(false)
+}
+
+model Transaction {
+  id             String   @id @default(cuid())
+  user           User     @relation(fields: [userId], references: [id])
+  userId         String
+  amount         Float
+  currency       String   @default("usd")
+  description    String
+  status         String
+  subscriptionId String?  @unique
+  createdAt      DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Product {
+  id          String     @id @default(cuid())
+  name        String
+  description String
+  price       Float
+  images      Json
+  category    String
+  seller      MerchantProfile @relation(fields: [sellerId], references: [id])
+  sellerId    String
+  stock       Int        @default(0)
+  cartItems   CartItem[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model CartItem {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId String
+  quantity  Int
+  addedAt   DateTime @default(now())
+
+  @@unique([userId, productId])
+}
+
+model Order {
+  id          String      @id @default(cuid())
+  user        User        @relation(fields: [userId], references: [id])
+  userId      String
+  totalAmount Float
+  status      String
+  items       OrderItem[]
+  createdAt   DateTime    @default(now())
+
+  @@index([userId])
+}
+
+model OrderItem {
+  id        String @id @default(cuid())
+  order     Order  @relation(fields: [orderId], references: [id])
+  orderId   String
+  productId String
+  name      String
+  price     Float
+  quantity  Int
+}
+
+model Booking {
+  id          String   @id @default(cuid())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  gym         Gym      @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  gymId       String
+  bookingType String
+  pricePaid   Float
+  startDate   DateTime
+  endDate     DateTime
+  status      String
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+// --- Community & Challenge Models ---
+
+model Challenge {
+  id                String                 @id @default(cuid())
+  name              String
+  description       String?
+  metric            String
+  goal              Int
+  startDate         DateTime
+  endDate           DateTime
+  participants      ChallengeParticipant[]
+  creator           User                   @relation("UserCreatedChallenges", fields: [creatorId], references: [id])
+  creatorId         String
+  hostedByGym       Gym?                   @relation("GymHostedChallenges", fields: [hostedByGymId], references: [id], onDelete: SetNull)
+  hostedByGymId     String?
+  hostedByTrainer   TrainerProfile?        @relation("TrainerHostedChallenges", fields: [hostedByTrainerId], references: [id], onDelete: SetNull)
+  hostedByTrainerId String?
+}
+
+model ChallengeParticipant {
+  id          String    @id @default(cuid())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  challengeId String
+  score       Int       @default(0)
+  joinedAt    DateTime  @default(now())
+
+  @@unique([userId, challengeId])
+}
+
+model Post {
+  id        String    @id @default(cuid())
+  createdAt DateTime  @default(now())
+  content   String
+  author    User      @relation("UserPosts", fields: [authorId], references: [id], onDelete: Cascade)
+  authorId  String
+  comments  Comment[]
+  likes Like[]
+  imageUrl String?
+  @@index([authorId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  content   String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId    String
+  author    User     @relation("UserComments", fields: [authorId], references: [id])
+  authorId  String
+
+  @@index([postId])
+}
+model Like {
+  id     String @id @default(cuid())
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  createdAt DateTime @default(now())
+
+  // This is crucial: It ensures a user can only like a post once.
+  @@unique([userId, postId])
+}
