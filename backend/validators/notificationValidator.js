@@ -8,10 +8,7 @@ const validate = (schema) => (req, res, next) => {
   return next();
 };
 
-<<<<<<< HEAD
 // --- Existing Schemas ---
-=======
->>>>>>> a3fb6ebb785b50067eea3d6dfee2cccd2bd93a19
 export const registerTokenSchema = Joi.object({
     token: Joi.string().required(),
 });
@@ -25,7 +22,6 @@ export const notificationIdParamSchema = Joi.object({
     id: Joi.string().required(),
 });
 
-<<<<<<< HEAD
 
 // --- New Admin Schemas ---
 
@@ -72,6 +68,4 @@ export const sendToGymSchema = Joi.object({
 });
 
 
-=======
->>>>>>> a3fb6ebb785b50067eea3d6dfee2cccd2bd93a19
 export default validate;
