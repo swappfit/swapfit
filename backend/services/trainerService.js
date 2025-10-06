@@ -21,7 +21,7 @@ export const getAll = async (queryParams) => {
   // --- 1. Robust Pagination & Query Parameter Handling ---
   // Provide default values and ensure page/limit are numbers
   const page = parseInt(queryParams.page || '1', 10);
-  const limit = parseInt(queryParams.limit || '10', 10);
+  const limit = parseInt(queryParams.limit || '30', 30);
   const skip = (page - 1) * limit;
 
   // --- 2. Live Database Query ---
