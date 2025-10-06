@@ -71,7 +71,7 @@ export const AuthProvider = ({ children }) => {
           setInternalToken(null);
           setUser(null);
           delete apiClient.defaults.headers.common['Authorization'];
-          auth0Logout({ logoutParams: { returnTo: window.location.origin } }); 
+          // auth0Logout({ logoutParams: { returnTo: window.location.origin } }); 
         }
       }
       setLoading(false);

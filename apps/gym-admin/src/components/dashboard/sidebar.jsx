@@ -18,7 +18,7 @@ import {
 } from "lucide-react"
 import { Button } from "../ui/button"
 import { cn } from "../../lib/utils"
-
+import { useAuth } from '../../context/AuthContext';
 const menuItems = [
   { href: "/", label: "Dashboard", icon: Home },
   { href: "/user-management", label: "User Management", icon: Users }, // Combined: members, trainers, gym approvals
@@ -34,6 +34,13 @@ const menuItems = [
 
 export function Sidebar({ open, onClose }) {
   const location = useLocation()
+  const { logout } = useAuth();
+
+  const handleLogout = () => {
+    logout();
+    // Also close the sidebar on mobile after logging out
+    onClose();
+  }
   
   return (
     <>
@@ -98,9 +105,11 @@ export function Sidebar({ open, onClose }) {
         
         {/* Footer - Fixed */}
         <div className="p-4 border-t border-border flex-shrink-0">
-          <Button
+            <Button
             variant="ghost"
             className="w-full justify-start text-muted-foreground hover:text-foreground hover:bg-accent"
+            // 👇 3. Attach the handleLogout function to the button's onClick event
+            onClick={handleLogout}
           >
             <LogOut className="w-5 h-5 mr-3" />
             Logout
