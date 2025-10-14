@@ -33,7 +33,7 @@ import cartRoutes from './Routes/cartRoutes.js';
 import trainingRoutes from './Routes/trainingRoutes.js';
 import merchantRoutes from './Routes/merchantRoutes.js';
 import { handleSendMessage } from './controllers/chatController.js';
-
+import webhookRoutes from './Routes/webhookRoutes.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -116,7 +116,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/training', trainingRoutes);
 app.use('/api/merchant', merchantRoutes);
-
+app.use('/api/webhooks', webhookRoutes);
 
 // --- Global Error Handler ---
 app.use(errorHandler);

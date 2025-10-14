@@ -14,23 +14,34 @@ export default function MerchantProductsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
+  // ✅ NEW: State for showing success/error feedback messages to the user
+  const [feedbackMessage, setFeedbackMessage] = useState({ type: '', text: '' });
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  // ✅ UPDATED: Added detailed logging to trace the fetch process
   const fetchProducts = async () => {
+    console.log("🔄 [FRONTEND] fetchProducts: Starting to fetch products...");
     try {
       setLoading(true);
       setError('');
       const response = await productService.getMyProducts();
+      console.log("✅ [FRONTEND] fetchProducts: API call successful.", response);
       if (response.success) {
         setProducts(response.data);
+        console.log("✅ [FRONTEND] fetchProducts: Product state updated with", response.data.length, "products.");
+      } else {
+        // Handle cases where the API returns a success: false
+        throw new Error(response.message || "Failed to fetch products.");
       }
     } catch (err) {
+      console.error("❌ [FRONTEND] fetchProducts: An error occurred.", err);
       setError("Failed to fetch products.");
-      console.error(err);
     } finally {
       setLoading(false);
+      console.log("🏁 [FRONTEND] fetchProducts: Finished.");
     }
   };
 
@@ -38,26 +49,48 @@ export default function MerchantProductsPage() {
     fetchProducts();
   }, []);
 
+  // ✅ UPDATED: Added detailed logging and user feedback
   const handleAddProduct = async (productData) => {
+    console.log("🚀 [FRONTEND] handleAddProduct: Starting product creation with data:", productData);
     try {
+      // Clear any previous feedback messages
+      setFeedbackMessage({ type: '', text: '' });
+
       const response = await productService.addMyProduct(productData);
+      console.log("✅ [FRONTEND] handleAddProduct: API call successful.", response);
+
       if (response.success) {
+        // Show a success message to the user
+        setFeedbackMessage({ type: 'success', text: 'Product created successfully!' });
+        
+        // Update auth data (if necessary)
         setAuthData(response.data.token, response.data.user);
-        fetchProducts(); 
+        
+        // Re-fetch the product list from the server to show the new product
+        console.log("🔄 [FRONTEND] handleAddProduct: Re-fetching products to update the list...");
+        await fetchProducts();
+
+        // Hide the success message after 3 seconds
+        setTimeout(() => setFeedbackMessage({ type: '', text: '' }), 3000);
+
+      } else {
+        throw new Error(response.message || "Failed to create product.");
       }
     } catch (err) {
-       console.error("Failed to add product:", err);
-       throw err;
+      console.error("❌ [FRONTEND] handleAddProduct: An error occurred.", err);
+      // Show an error message to the user
+      setFeedbackMessage({ type: 'error', text: 'Failed to create product. Please try again.' });
     }
   };
 
   const handleDeleteProduct = async (productId) => {
     if (window.confirm("Are you sure you want to delete this product?")) {
+        console.log(`🗑️ [FRONTEND] handleDeleteProduct: Attempting to delete product ${productId}`);
         try {
             const response = await productService.deleteMyProduct(productId);
             if (response.success) {
                 setAuthData(response.data.token, response.data.user);
-                fetchProducts();
+                fetchProducts(); // Re-fetch products to update the list
             }
         } catch (err) {
             setError("Failed to delete product.");
@@ -74,6 +107,15 @@ export default function MerchantProductsPage() {
 
   return (
     <div className="w-full animate-fade-in">
+      {/* ✅ NEW: Feedback Message Display */}
+      {feedbackMessage.text && (
+        <div className={`text-center p-3 mb-4 rounded-lg mx-6 ${
+          feedbackMessage.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+        }`}>
+          {feedbackMessage.text}
+        </div>
+      )}
+
       <AddProductModal 
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -131,7 +173,6 @@ export default function MerchantProductsPage() {
                 key={product.id}
                 className="bg-gray-800 p-5 rounded-xl shadow-xl border border-gray-700 flex flex-col justify-between"
               >
-                {/* ✅✅✅ THIS IS THE CORRECTED SECTION ✅✅✅ */}
                 <div>
                   <div className="flex justify-end items-start mb-3">
                     <span className={`text-xs px-2 py-1 rounded-full ${

@@ -13,22 +13,29 @@ const getMerchantProfileByUserId = async (userId) => {
 // --- Merchant-Specific (Private) Functions ---
 
 export const createProductForMerchant = async (userId, productData) => {
+ try{ 
   const merchantProfile = await getMerchantProfileByUserId(userId);
+  if (!merchantProfile) { throw new AppError('Merchant profile not found for this user.', 404); }
+  console.log("✅ [ProductService] Merchant profile found:", merchantProfile);
   const dataToCreate = {
     ...productData,
     images: productData.images || [],
     sellerId: merchantProfile.id,
   };
+  console.log("✅ [ProductService] Data to create product:", dataToCreate);
   return await prisma.product.create({ data: dataToCreate });
+ }
+catch (error) {
+        console.error("❌ [ProductService] Prisma Error creating product:", error);
+}
 };
-
 export const getProductsForMerchant = async (userId) => {
   const merchantProfile = await getMerchantProfileByUserId(userId);
   return await prisma.product.findMany({
     where: { sellerId: merchantProfile.id },
     orderBy: { createdAt: 'desc' },
   });
-};
+};  
 
 export const updateProductForMerchant = async (userId, productId, updateData) => {
   const merchantProfile = await getMerchantProfileByUserId(userId);
