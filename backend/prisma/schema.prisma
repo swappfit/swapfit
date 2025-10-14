@@ -429,6 +429,8 @@ model Product {
   cartItems   CartItem[]
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
+  chargebeeItemId      String?    // To store the ID of the "Item" in Chargebee
+  chargebeeItemPriceId String?    // To store the ID of the "Item Price" in Chargebee
 }
 
 model CartItem {
@@ -451,7 +453,7 @@ model Order {
   status      String
   items       OrderItem[]
   createdAt   DateTime    @default(now())
-
+  chargebeeInvoiceId   String? @unique
   @@index([userId])
 }
 

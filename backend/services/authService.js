@@ -431,3 +431,35 @@ export const getFullUserById = async (userId) => {
   const { password, ...userResponse } = user;
   return userResponse;
 };
+// ✅✅✅ NEW ATOMIC SERVICE FUNCTION ✅✅✅
+export const verifyAndPromoteToAdmin = async (auth0Payload) => {
+  const auth0Id = auth0Payload.sub;
+  const email = auth0Payload.email || `user_${auth0Id}@placeholder.com`;
+
+  console.log(`[AuthService] Verifying and promoting user ${auth0Id} to ADMIN.`);
+
+  // upsert = "Update or Insert". This is a single, atomic operation.
+  const user = await prisma.user.upsert({
+    where: { auth0_id: auth0Id },
+    update: {
+      role: 'ADMIN', // Always set role to ADMIN on login for this portal
+      email: email,   // Update email in case it changed in Auth0
+    },
+    create: {
+      auth0_id: auth0Id,
+      email: email,
+      provider: 'auth0',
+      role: 'ADMIN', // Set role to ADMIN on creation
+    },
+    include: { // Include all profiles to return a complete object
+      memberProfile: true,
+      managedGyms: true,
+      trainerProfile: true,
+      merchantProfile: true,
+    },
+  });
+
+  const { password, ...userResponse } = user;
+  console.log(`[AuthService] User ${userResponse.id} verified and promoted to ADMIN.`);
+  return userResponse;
+};

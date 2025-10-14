@@ -24,37 +24,15 @@ import {
 } from "lucide-react"
 import { Avatar, AvatarFallback } from "../ui/avatar"
 
-const notifications = []
+// Import the new service
+import * as notificationService from'../../api/notificationService';
 
+// This is now unused, as we fetch from the API
 const notificationTemplates = [
-  {
-    id: 1,
-    name: "Challenge Announcement",
-    description: "Announce new fitness challenges to all members",
-    type: "Challenge",
-    icon: Target
-  },
-  {
-    id: 2,
-    name: "Achievement Celebration",
-    description: "Celebrate member achievements and badge unlocks",
-    type: "Achievement",
-    icon: Award
-  },
-  {
-    id: 3,
-    name: "Maintenance Alert",
-    description: "Notify about gym maintenance and closures",
-    type: "Maintenance",
-    icon: Building2
-  },
-  {
-    id: 4,
-    name: "Progress Report",
-    description: "Send monthly progress reports to members",
-    type: "Report",
-    icon: Users
-  }
+  { id: 1, name: "Challenge Announcement", description: "Announce new fitness challenges", type: "Challenge", icon: Target },
+  { id: 2, name: "Achievement Celebration", description: "Celebrate member achievements", type: "Achievement", icon: Award },
+  { id: 3, name: "Maintenance Alert", description: "Notify about gym maintenance", type: "Maintenance", icon: Building2 },
+  { id: 4, name: "Progress Report", description: "Send monthly progress reports", type: "Report", icon: Users }
 ]
 
 export function MemberNotifications() {
@@ -62,36 +40,77 @@ export function MemberNotifications() {
   const [selectedType, setSelectedType] = useState("all")
   const [selectedStatus, setSelectedStatus] = useState("all")
   const [selectedPriority, setSelectedPriority] = useState("all")
-  const [items, setItems] = useState(notifications)
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true);
 
+  // Fetch notifications from the API on component mount
   useEffect(() => {
-    let alive = true
-    import("../../lib/api.js").then(({ authHeaders }) =>
-      fetch((import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api') + '/notifications/me', {
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      })
-        .then((r) => (r.ok ? r.json() : Promise.reject()))
-        .then((json) => {
-          if (!alive) return
-          const mapped = (json?.data || []).map((n) => ({
-            id: n.id,
-            title: n.title,
-            message: n.message,
-            type: n.type || 'General',
-            priority: 'Low',
-            status: 'Sent',
-            recipients: 0,
-            sentAt: n.createdAt ? new Date(n.createdAt).toLocaleString() : null,
-            scheduledFor: null,
-            icon: Bell,
-            color: 'from-green-400 to-blue-500',
-          }))
-          setItems(mapped)
+    const fetchNotifications = async () => {
+      try {
+        setLoading(true);
+        const { data } = await notificationService.getAllNotifications();
+        const mapped = (data?.data || []).map((n) => ({
+          id: n.id,
+          title: n.title,
+          message: n.message,
+          type: n.type || 'General',
+          priority: 'Low',
+          status: 'Sent',
+          recipients: 0,
+          sentAt: n.createdAt ? new Date(n.createdAt).toLocaleString() : null,
+          scheduledFor: null,
+          icon: Bell,
+          color: 'from-green-400 to-blue-500',
+        }));
+        setItems(mapped);
+      } catch (error) {
+        console.error("Failed to fetch notifications:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchNotifications();
+  }, []);
+
+  // Simple handler for sending a new notification
+  const handleSendNew = () => {
+    const title = prompt("Notification Title:");
+    if (!title) return;
+
+    const message = prompt("Notification Message:");
+    if (!message) return;
+
+    const audience = confirm("Send to ALL users? (Click 'Cancel' for more options later)");
+    
+    if (audience) {
+      notificationService.sendToAll({ title, message })
+        .then(() => {
+          alert("Notification sent successfully!");
+          window.location.reload();
         })
-        .catch(() => {})
-    )
-    return () => { alive = false }
-  }, [])
+        .catch(error => {
+          console.error("Failed to send:", error);
+          alert("Failed to send notification. Check console.");
+        });
+    } else {
+      alert("Sending to specific roles/users is a feature for the UI. For now, this only sends to all.");
+    }
+  };
+
+  // Simple handler for deleting a notification
+  const handleDelete = (id) => {
+    if (window.confirm("Are you sure you want to delete this notification?")) {
+      notificationService.deleteNotification(id)
+        .then(() => {
+          alert("Notification deleted!");
+          window.location.reload();
+        })
+        .catch(error => {
+          console.error("Failed to delete:", error);
+          alert("Failed to delete notification. Check console.");
+        });
+    }
+  }
 
   const filteredNotifications = items.filter(notification => {
     const matchesSearch = notification.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -132,6 +151,10 @@ export function MemberNotifications() {
     }
   }
 
+  if (loading) {
+    return <div>Loading notifications...</div>;
+  }
+
   return (
     <div className="space-y-8">
       <div>
@@ -149,7 +172,7 @@ export function MemberNotifications() {
               </div>
               <div>
                 <p className="text-sm font-medium text-slate-400">Total Sent</p>
-                <p className="text-2xl font-bold text-white">{notifications.filter(n => n.status === "Sent").length}</p>
+                <p className="text-2xl font-bold text-white">{items.filter(n => n.status === "Sent").length}</p>
               </div>
             </div>
           </CardContent>
@@ -162,7 +185,7 @@ export function MemberNotifications() {
               </div>
               <div>
                 <p className="text-sm font-medium text-slate-400">Scheduled</p>
-                <p className="text-2xl font-bold text-white">{notifications.filter(n => n.status === "Scheduled").length}</p>
+                <p className="text-2xl font-bold text-white">{items.filter(n => n.status === "Scheduled").length}</p>
               </div>
             </div>
           </CardContent>
@@ -175,7 +198,7 @@ export function MemberNotifications() {
               </div>
               <div>
                 <p className="text-sm font-medium text-slate-400">Total Recipients</p>
-                <p className="text-2xl font-bold text-white">{notifications.reduce((sum, n) => sum + n.recipients, 0).toLocaleString()}</p>
+                <p className="text-2xl font-bold text-white">{items.reduce((sum, n) => sum + n.recipients, 0).toLocaleString()}</p>
               </div>
             </div>
           </CardContent>
@@ -240,7 +263,7 @@ export function MemberNotifications() {
             <option value="Medium">Medium</option>
             <option value="Low">Low</option>
           </select>
-          <Button className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600">
+          <Button className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600" onClick={handleSendNew}>
             <Plus className="w-4 h-4 mr-2" />
             New Notification
           </Button>
@@ -367,6 +390,7 @@ export function MemberNotifications() {
                     size="sm"
                     variant="outline"
                     className="border-red-600 text-red-400 hover:bg-red-600/20"
+                    onClick={() => handleDelete(notification.id)}
                   >
                     <Trash2 className="w-4 h-4 mr-2" />
                     Delete

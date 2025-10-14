@@ -4,9 +4,9 @@ import { auth0Middleware } from '../middlewares/auth0Middleware.js';
 import validate, {
   validateParams,
   createLogSchema,
-  updateLogBodySchema, // Corrected schema for the body
+  updateLogBodySchema,
   logIdParamSchema,
-  dateParamSchema      // FIX: Correctly import 'dateParamSchema'
+  dateParamSchema
 } from '../validators/dietValidator.js';
 
 const router = express.Router();

@@ -1,7 +1,7 @@
 // src/controllers/subscriptionController.js
 
 import * as subscriptionService from '../services/subscriptionService.js';
-import * as authService from '../services/authService.js'; 
+import * as authService from '../services/authService.js'; // ✅ IMPORT authService to find the user
 import catchAsync from '../utils/catchAsync.js';
 import AppError from '../utils/AppError.js';
 
@@ -29,8 +29,11 @@ const getUserIdFromRequest = async (req) => {
     throw new AppError('Could not identify user from token.', 401);
 };
 
+
 export const createCheckoutSession = catchAsync(async (req, res) => {
+  // ✅✅✅ THE DEFINITIVE FIX IS HERE ✅✅✅
   const userId = await getUserIdFromRequest(req);
+  
   const { planId, planType } = req.body;
 
   const checkoutUrl = await subscriptionService.createCheckoutSession({ userId, planId, planType });
@@ -39,21 +42,24 @@ export const createCheckoutSession = catchAsync(async (req, res) => {
 });
 
 export const createPortalSession = catchAsync(async (req, res) => {
-    const userId = await getUserIdFromRequest(req); // Use the helper here too for consistency
+    console.log("--- Inside createPortalSession Controller ---");
+    
+    // Use the existing helper function to reliably get the user ID.
+    const userId = await getUserIdFromRequest(req);
+    
+    console.log(`[Controller] Calling createPortalSession service for User ID: ${userId}`);
     const portalUrl = await subscriptionService.createPortalSession(userId);
+
+    console.log("[Controller] Service returned a portal URL. Sending success response.");
     res.status(200).json({ success: true, data: { portalUrl } });
 });
 
 export const handleChargebeeWebhook = catchAsync(async (req, res) => {
-    console.log('[Webhook Controller] Received webhook from Chargebee');
-    console.log('[Webhook Controller] Event type:', req.body.event_type);
-    console.log('[Webhook Controller] Raw body type:', typeof req.body);
-    
-    try {
-        await subscriptionService.processWebhook(req.body, req.headers);
-        res.status(200).send(); 
-    } catch (error) {
-        console.error('[Webhook Controller] Error processing webhook:', error);
-        res.status(500).send();
-    }
+    // Pass both the parsed body (for easy access to data) and the rawBody (for verification)
+    await subscriptionService.processWebhook({
+        parsedBody: req.body,
+        rawBody: req.rawBody,
+        headers: req.headers
+    });
+    res.status(200).send(); 
 });

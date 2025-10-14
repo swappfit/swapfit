@@ -3,8 +3,7 @@
 import axios from 'axios';
 
 const apiClient = axios.create({
-  // Use a proxy in package.json during development to avoid CORS issues
-  baseURL: '/api',
+    baseURL: `${import.meta.env.VITE_API_BASE_URL}/api`,
 });
 
 // Request Interceptor: Attaches the JWT to every outgoing request

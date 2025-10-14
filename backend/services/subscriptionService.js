@@ -1,5 +1,3 @@
-// src/services/subscriptionService.js
-
 import { PrismaClient } from '@prisma/client';
 import chargebeeModule from 'chargebee-typescript';
 import AppError from '../utils/AppError.js';
@@ -100,113 +98,158 @@ export const createPortalSession = async (userId) => {
     return portalSessionResult.portal_session.access_url;
 };
 
-export const processWebhook = async (rawPayload, headers) => {
-    console.log('[Webhook] Starting to process webhook...');
-    console.log('[Webhook] Raw payload type:', typeof rawPayload);
+
+// ✅ MARKETPLACE INTEGRATION: Function to process a one-time marketplace order
+const processMarketplaceOrder = async (invoice) => {
+    console.log(`[Webhook] Processing marketplace order for invoice: ${invoice.id}`);
     
+    const { line_items, customer_id, total, id: chargebeeInvoiceId } = invoice;
+
+    // Find the user in our database using the Chargebee customer ID
+    const user = await prisma.user.findUnique({ where: { chargebeeCustomerId: customer_id } });
+    if (!user) {
+        throw new Error(`User not found for Chargebee customer ID: ${customer_id}`);
+    }
+
+    // Use a transaction to ensure all database operations succeed or fail together.
+    const newOrder = await prisma.$transaction(async (tx) => {
+        
+        // First, check if an order for this invoice already exists to prevent duplicates.
+        const existingOrder = await tx.order.findUnique({ where: { chargebeeInvoiceId } });
+        if (existingOrder) {
+            console.log(`[Webhook] Order for invoice ${chargebeeInvoiceId} already exists. Skipping.`);
+            return existingOrder;
+        }
+
+        // Create the main Order record
+        const order = await tx.order.create({
+            data: {
+                userId: user.id,
+                totalAmount: total / 100, // Convert back from cents to dollars
+                status: 'Paid', // Or 'Processing' if you need a fulfillment step
+                chargebeeInvoiceId: chargebeeInvoiceId,
+            },
+        });
+
+        // Create an OrderItem for each line item in the Chargebee invoice
+        const orderItemsToCreate = line_items.map(lineItem => {
+            const { internal_product_id, internal_merchant_id, internal_cart_item_id } = lineItem.metadata;
+            return {
+                orderId: order.id,
+                productId: internal_product_id,
+                name: lineItem.description,
+                price: lineItem.amount / 100, // Convert back from cents
+                quantity: lineItem.quantity,
+            };
+        });
+
+        await tx.orderItem.createMany({ data: orderItemsToCreate });
+
+        // Clean up the user's cart by deleting the items that were just purchased
+        const cartItemIdsToDelete = line_items.map(li => li.metadata.internal_cart_item_id);
+        if (cartItemIdsToDelete.length > 0) {
+            await tx.cartItem.deleteMany({
+                where: {
+                    id: { in: cartItemIdsToDelete },
+                    userId: user.id,
+                },
+            });
+            console.log(`[Webhook] Cleaned up ${cartItemIdsToDelete.length} items from user's cart.`);
+        }
+        
+        console.log(`[Webhook] ✅ Marketplace Order ${order.id} created successfully.`);
+        return order;
+    });
+
+    // TODO: Add logic here to send notifications to the relevant merchants
+    // about their new orders.
+    
+    return newOrder;
+};
+
+
+// ✅✅✅ THIS IS THE ONLY PART THAT HAS CHANGED ✅✅✅
+// src/services/subscriptionService.js
+
+// ... (keep all your other functions like createCheckoutSession, createPortalSession, and processMarketplaceOrder)
+
+export const processWebhook = async (payload) => {
+    const { parsedBody, rawBody, headers } = payload;
     let event;
-    
+
     try {
         const webhookSecret = process.env.CHARGEBEE_WEBHOOK_SECRET;
 
         if (webhookSecret) {
-            console.log('[Webhook] Verifying webhook signature...');
             event = chargebee.event.deserialize(
-                rawPayload.toString(), 
-                headers['x-chargebee-webhook-signature'], 
+                rawBody.toString(),
+                headers['x-chargebee-webhook-signature'],
                 webhookSecret
             );
             if (!event) {
                 throw new AppError('Webhook signature verification failed.', 403);
             }
         } else {
-            console.warn('⚠️ [Webhook] SKIPPING SIGNATURE VERIFICATION. No CHARGEBEE_WEBHOOK_SECRET found. This is for DEVELOPMENT ONLY.');
-            
-            // Check if rawPayload is already an object (parsed by Express body-parser)
-            let payloadString;
-            if (typeof rawPayload === 'string') {
-                payloadString = rawPayload;
-            } else if (typeof rawPayload === 'object') {
-                payloadString = JSON.stringify(rawPayload);
-            } else {
-                throw new AppError('Invalid payload type. Expected string or object.', 400);
-            }
-            
-            event = JSON.parse(payloadString);
+            // IMPORTANT: Use parsedBody for direct parsing when there's no secret
+            event = parsedBody;
         }
         
-        console.log(`[Webhook] Successfully parsed event. Type: ${event.event_type}`);
-    } catch (parseError) {
-        console.error('[Webhook] Error parsing webhook:', parseError);
-        throw new AppError(`Failed to parse webhook: ${parseError.message}`, 400);
-    }
-    
-    const { content, event_type } = event;
-    if (!content || !event_type) {
-        console.error('[Webhook] Invalid webhook payload structure:', event);
-        throw new AppError('Invalid webhook payload structure.', 400);
-    }
+        const { content, event_type } = event;
+        if (!content || !event_type) {
+            throw new AppError('Invalid webhook payload structure.', 400);
+        }
 
-    console.log(`[Webhook] Processing event: ${event_type}`);
+        console.log(`[Webhook] Processing event: ${event_type}`);
 
-    // Extract subscription and customer from content
-    const subscription = content.subscription || {};
-    const customer = content.customer || {};
+        // ✅ MARKETPLACE INTEGRATION: Handle one-time invoice payments
+        if (event_type === 'invoice_paid') {
+            const invoice = content.invoice;
+            if (invoice.line_items && invoice.line_items.length > 0 && invoice.line_items[0].metadata) {
+                console.log('[Webhook] Detected marketplace order payment.');
+                await processMarketplaceOrder(invoice);
+                return { success: true, message: `Successfully processed marketplace order for invoice ${invoice.id}` };
+            } else {
+                // This is a subscription payment, we will handle it below.
+                console.log('[Webhook] Received subscription payment, deferring to subscription-specific events for processing.');
+                return { success: true, message: 'Ignored non-marketplace invoice_paid event.' };
+            }
+        }
 
-    // Only process subscription-related events
-    const subscriptionEvents = [
-        'subscription_created',
-        'subscription_activated',
-        'subscription_renewed',
-        'subscription_cancelled',
-        'subscription_expired'
-    ];
+        // --- Existing Subscription Logic ---
+        const subscriptionEvents = [
+            'subscription_created', 'subscription_activated', 'subscription_renewed',
+            'subscription_cancelled', 'subscription_expired'
+        ];
 
-    if (!subscriptionEvents.includes(event_type)) {
-        console.log(`[Webhook] Skipping non-subscription event: ${event_type}`);
-        return { success: true, message: `Skipped non-subscription event: ${event_type}` };
-    }
+        if (!subscriptionEvents.includes(event_type)) {
+            console.log(`[Webhook] Skipping unhandled event type: ${event_type}`);
+            return { success: true, message: `Skipped event: ${event_type}` };
+        }
 
-    try {
-        console.log(`[Webhook] Processing subscription event: ${event_type} for subscription ${subscription.id}`);
-        console.log(`[Webhook] Customer ID: ${customer.id}`);
-        console.log(`[Webhook] Subscription Status: ${subscription.status}`);
+        const subscription = content.subscription || {};
+        const customer = content.customer || {};
 
         // Find user by Chargebee customer ID
-        let user = await prisma.user.findUnique({ 
-            where: { chargebeeCustomerId: customer.id } 
+        let user = await prisma.user.findUnique({
+            where: { chargebeeCustomerId: customer.id }
         });
 
         if (!user) {
-            console.log(`[Webhook] User not found for Chargebee customer ID ${customer.id}`);
-            
-            // Try to find the user by email as a fallback
+            // Fallback: Find user by email if not found by customer ID
             if (customer.email) {
-                console.log(`[Webhook] Trying to find user by email: ${customer.email}`);
-                const userByEmail = await prisma.user.findUnique({ 
-                    where: { email: customer.email } 
-                });
-                
-                if (userByEmail) {
-                    console.log(`[Webhook] Found user by email: ${userByEmail.id}. Updating Chargebee customer ID.`);
-                    await prisma.user.update({ 
-                        where: { id: userByEmail.id }, 
-                        data: { chargebeeCustomerId: customer.id } 
+                user = await prisma.user.findUnique({ where: { email: customer.email } });
+                if (user) {
+                    await prisma.user.update({
+                        where: { id: user.id },
+                        data: { chargebeeCustomerId: customer.id }
                     });
-                    
-                    // Use the found user
-                    user = userByEmail;
                 } else {
-                    console.error(`[Webhook] User not found by email either: ${customer.email}`);
-                    return { success: false, message: `User not found for customer ID ${customer.id}` };
+                    throw new AppError(`User not found for customer ID ${customer.id}`, 404);
                 }
             } else {
-                console.error(`[Webhook] No email in customer data`);
-                return { success: false, message: `User not found for customer ID ${customer.id}` };
+                throw new AppError(`User not found for customer ID ${customer.id}`, 404);
             }
         }
-
-        console.log(`[Webhook] Found user: ${user.id} (${user.email})`);
 
         // Extract plan information
         let planItemId = null;
@@ -215,48 +258,32 @@ export const processWebhook = async (rawPayload, headers) => {
         }
 
         if (!planItemId) {
-            console.error(`[Webhook] No plan item ID found in subscription ${subscription.id}`);
-            return { success: false, message: 'No plan item ID found in subscription' };
+            throw new AppError('No plan item ID found in subscription.', 400);
         }
-
-        console.log(`[Webhook] Plan Item ID: ${planItemId}`);
 
         // Find the plan in our database
-        const gymPlan = await prisma.gymPlan.findFirst({ 
-            where: { chargebeePlanId: planItemId } 
-        });
-        
-        const trainerPlan = await prisma.trainerPlan.findFirst({ 
-            where: { chargebeePlanId: planItemId } 
-        });
+        const [gymPlan, trainerPlan] = await Promise.all([
+            prisma.gymPlan.findFirst({ where: { chargebeePlanId: planItemId } }),
+            prisma.trainerPlan.findFirst({ where: { chargebeePlanId: planItemId } })
+        ]);
 
         if (!gymPlan && !trainerPlan) {
-            console.error(`[Webhook] Plan not found in our database for Chargebee plan ID ${planItemId}`);
-            return { success: false, message: `Plan not found for Chargebee plan ID ${planItemId}` };
+            throw new AppError(`Plan not found for Chargebee plan ID ${planItemId}.`, 404);
         }
 
-        console.log(`[Webhook] Found plan: ${gymPlan ? 'Gym Plan' : 'Trainer Plan'} - ${gymPlan ? gymPlan.name : trainerPlan.name}`);
-
         // Process subscription based on event type
-        if (event_type === 'subscription_created' || 
-            event_type === 'subscription_activated' || 
-            event_type === 'subscription_renewed') {
-            
-            console.log(`[Webhook] Creating/updating subscription for user ${user.id}`);
-            
+        if (['subscription_created', 'subscription_activated', 'subscription_renewed'].includes(event_type)) {
             const subscriptionData = {
-                userId: user.id, 
+                userId: user.id,
                 status: subscription.status,
                 startDate: new Date(subscription.activated_at * 1000),
                 endDate: new Date(subscription.current_term_end * 1000),
                 chargebeeSubscriptionId: subscription.id,
-                gymPlanId: gymPlan ? gymPlan.id : null,
-                trainerPlanId: trainerPlan ? trainerPlan.id : null,
+                gymPlanId: gymPlan?.id || null,
+                trainerPlanId: trainerPlan?.id || null,
             };
             
-            console.log(`[Webhook] Subscription data:`, subscriptionData);
-            
-            const createdSubscription = await prisma.subscription.upsert({
+            await prisma.subscription.upsert({
                 where: { chargebeeSubscriptionId: subscription.id },
                 update: {
                     status: subscription.status,
@@ -264,26 +291,24 @@ export const processWebhook = async (rawPayload, headers) => {
                 },
                 create: subscriptionData
             });
-            
-            console.log(`[Webhook] Successfully created/updated subscription:`, createdSubscription);
+            console.log(`[Webhook] ✅ Successfully processed subscription ${subscription.id} for user ${user.id}`);
         }
-        else if (event_type === 'subscription_cancelled' || event_type === 'subscription_expired') {
-            console.log(`[Webhook] Cancelling subscription for user ${user.id}`);
-            
-            const updatedSubscription = await prisma.subscription.updateMany({
+        else if (['subscription_cancelled', 'subscription_expired'].includes(event_type)) {
+            await prisma.subscription.updateMany({
                 where: { chargebeeSubscriptionId: subscription.id },
                 data: {
                     status: 'cancelled',
                     endDate: new Date((subscription.cancelled_at || subscription.current_term_end) * 1000)
                 }
             });
-            
-            console.log(`[Webhook] Successfully cancelled subscription:`, updatedSubscription);
+            console.log(`[Webhook] ✅ Successfully cancelled subscription ${subscription.id} for user ${user.id}`);
         }
 
         return { success: true, message: `Successfully processed ${event_type}` };
+
     } catch (error) {
-        console.error(`[Webhook] Error processing webhook:`, error);
-        return { success: false, message: error.message };
+        console.error(`[Webhook] ❌ Error processing webhook:`, error.message);
+        // Re-throw the error so the controller's catchAsync wrapper can send a proper error response.
+        throw error;
     }
 };

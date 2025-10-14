@@ -1,86 +1,44 @@
-// File: controllers/webhookController.js
+import crypto from 'crypto';
+import * as orderService from '../services/orderService.js';
+import catchAsync from '../utils/catchAsync.js';
 
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
+export const handleChargebeeWebhook = catchAsync(async (req, res) => {
+  const webhookBody = req.body;
+  
+  // ✅ IMPORTANT: Find the signature in the headers. The name can vary.
+  const signature = req.headers['x-chargebee-signature'] || req.headers['x-chargebee-webhook-signature'];
+  
+  // --- SECURITY: Verify the Webhook Signature ---
+  // This ensures the request is genuinely from Chargebee and not a malicious actor.
+  if (!signature) {
+    console.error('[WEBHOOK] Signature missing.');
+    return res.status(400).send('Webhook signature missing.');
+  }
 
-const webhookController = {
-  /**
-   * ✅ NEW: Handles all incoming webhooks from Chargebee.
-   * This is the single source of truth for subscription state changes.
-   */
-  handleChargebeeWebhook: async (req, res) => {
-    // ⭐️ SECURITY: In a real application, the first step is to verify
-    // that the webhook request is genuinely from Chargebee.
-    // This usually involves checking a signature in the request headers.
-    
-    const event = req.body;
-    console.log(`Received Chargebee Webhook: ${event.event_type}`);
+  // Create the expected signature using the secret from your Chargebee dashboard
+  const expectedSignature = crypto
+    .createHmac('sha256', process.env.CHARGEBEE_WEBHOOK_SECRET)
+    .update(JSON.stringify(webhookBody))
+    .digest('hex');
 
-    try {
-      switch (event.event_type) {
-        case 'subscription_created':
-        case 'subscription_reactivated': {
-          const { subscription, customer } = event.content;
-          const user = await prisma.user.findUnique({ where: { chargebeeCustomerId: customer.id } });
-          if (!user) throw new Error(`User not found for Chargebee customer ${customer.id}`);
+  if (signature !== expectedSignature) {
+    console.error('[WEBHOOK] Invalid signature.');
+    return res.status(401).send('Invalid signature.');
+  }
 
-          // Find our internal plan ID from the Chargebee plan ID
-          const planItem = subscription.subscription_items[0];
-          const plan = await prisma.gymPlan.findUnique({ where: { chargebeePlanId: planItem.item_price_id } }) ||
-                       await prisma.trainerPlan.findUnique({ where: { chargebeePlanId: planItem.item_price_id } });
-          
-          if (!plan) throw new Error(`Plan not found for Chargebee plan ${planItem.item_price_id}`);
+  console.log(`[WEBHOOK] ✅ Signature verified. Received event: ${webhookBody.event_type}`);
 
-          await prisma.subscription.create({
-            data: {
-              userId: user.id,
-              chargebeeSubscriptionId: subscription.id,
-              status: subscription.status, // "active" or "trialing"
-              startDate: new Date(subscription.start_date * 1000),
-              endDate: new Date(subscription.current_term_end * 1000),
-              gymPlanId: plan.gymId ? plan.id : null,
-              trainerPlanId: plan.trainerProfileId ? plan.id : null,
-            },
-          });
-          break;
-        }
+  // --- Handle the Specific Event ---
+  // We only care about the 'invoice_paid' event for now.
+  if (webhookBody.event_type === 'invoice_paid') {
+    const invoice = webhookBody.content.invoice;
+    await orderService.createOrderFromPaidInvoice(invoice);
+  } else {
+    console.log(`[WEBHOOK] Ignoring unhandled event type: ${webhookBody.event_type}`);
+  }
 
-        case 'subscription_renewed': {
-          const { subscription } = event.content;
-          await prisma.subscription.update({
-            where: { chargebeeSubscriptionId: subscription.id },
-            data: {
-              status: subscription.status, // should be 'active'
-              endDate: new Date(subscription.current_term_end * 1000), // The new end date
-            },
-          });
-          break;
-        }
-
-        case 'subscription_cancelled': {
-          const { subscription } = event.content;
-          await prisma.subscription.update({
-            where: { chargebeeSubscriptionId: subscription.id },
-            data: {
-              status: 'cancelled',
-              endDate: new Date(subscription.cancelled_at * 1000),
-            },
-          });
-          break;
-        }
-
-        default:
-          console.log(`Unhandled event type: ${event.event_type}`);
-      }
-
-      res.status(200).send('Webhook processed.');
-    } catch (err) {
-      console.error(`Error processing webhook ${event.id}:`, err);
-      // Return a 500 error to signal to Chargebee that it should retry sending the webhook.
-      res.status(500).json({ success: false, message: 'Failed to process webhook.' });
-    }
-  },
-};
-
-export default webhookController;
-
+  // ✅ CRITICAL: Respond to Chargebee immediately.
+  // Chargebee expects a 2xx status code within a few seconds. If it doesn't get one,
+  // it will assume the delivery failed and will try to resend the webhook later.
+  res.status(200).send('OK');
+});

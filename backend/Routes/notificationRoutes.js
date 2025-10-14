@@ -1,15 +1,83 @@
-// Routes/notificationRoutes.js
+// src/routes/notificationRoutes.js
 import express from 'express';
 import * as notificationController from '../controllers/notificationController.js';
 import { auth0Middleware } from '../middlewares/auth0Middleware.js';
-import roleAuth from '../middlewares/roleAuth.js';
+import authGatekeeper from '../middlewares/authGatekeeper.js';
+import roleAuth from '../middlewares/roleAuth.js'; // Assumes this middleware exists and works
 import validate, { 
     registerTokenSchema, 
     sendGymNotificationSchema,
-    notificationIdParamSchema
+    notificationIdParamSchema,
+    // New validators for admin routes
+    sendToAllSchema,
+    sendToRoleSchema,
+    sendToUserSchema,
+    sendToGymSchema
 } from '../validators/notificationValidator.js';
+import { auth } from 'express-oauth2-jwt-bearer';
 
 const router = express.Router();
+
+// =================================================================
+// ADMIN-SPECIFIC ROUTES
+// =================================================================
+
+// Get all notifications in the system for the admin dashboard
+router.get('/', 
+    auth0Middleware,
+    roleAuth('ADMIN'), // Only admins can see all notifications
+    notificationController.getAllNotificationsForAdmin
+);
+
+// Send a notification to ALL users in the system
+router.post(
+    '/send-to-all',
+    authGatekeeper,
+    roleAuth('ADMIN'),
+    validate(sendToAllSchema),
+    notificationController.sendNotificationToAll
+);
+
+// Send a notification to all users with a specific role
+router.post(
+    '/send-to-role',
+    authGatekeeper,
+    roleAuth('ADMIN'),
+    validate(sendToRoleSchema),
+    notificationController.sendNotificationToRole
+);
+
+// Send a notification to a specific user by their database ID
+router.post(
+    '/send-to-user',
+    authGatekeeper,
+    roleAuth('ADMIN'),
+    validate(sendToUserSchema),
+    notificationController.sendNotificationToUserById
+);
+
+// Send a notification to all members of a specific gym (by Gym ID)
+router.post(
+    '/send-to-gym',
+    authGatekeeper,
+    roleAuth('ADMIN'),
+    validate(sendToGymSchema),
+    notificationController.sendNotificationToGymMembersAdmin
+);
+
+// Delete any notification by its ID
+router.delete(
+    '/:id',
+    authGatekeeper,
+    roleAuth('ADMIN'),
+    validate(notificationIdParamSchema),
+    notificationController.deleteNotificationAdmin
+);
+
+
+// =================================================================
+// EXISTING MEMBER/GYM OWNER ROUTES (Unchanged)
+// =================================================================
 
 // Debug middleware to log request details
 const debugMiddleware = (req, res, next) => {
@@ -55,11 +123,7 @@ router.patch(
   notificationController.markAsRead
 );
 
-router.delete(
-  '/:id',
-  auth0Middleware,
-  validate(notificationIdParamSchema),
-  notificationController.deleteNotification
-);
+// Note: The general delete route is now handled by the admin version above.
+// If gym owners need to delete their own notifications, that logic would need to be separate.
 
 export default router;
