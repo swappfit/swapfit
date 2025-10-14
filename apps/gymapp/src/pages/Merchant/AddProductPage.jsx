@@ -1,181 +1,187 @@
-// src/pages/Merchant/AddProductPage.jsx
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+// src/pages/Merchant/MerchantProductsPage.jsx
 
-export default function AddProductPage() {
-  const navigate = useNavigate();
-  const [formData, setFormData] = useState({
-    name: '',
-    category: '',
-    price: '',
-    stock: '',
-    description: '',
-    features: [''],
+import React, { useState, useEffect } from 'react';
+import * as productService from '../../api/productService';
+import { useAuth } from '../../context/AuthContext';
+import AddProductModal from './AddProductModal';
+
+const CATEGORIES = ["All", "Supplements", "Equipment", "Accessories", "Apparel"];
+
+export default function MerchantProductsPage() {
+  const { setAuthData } = useAuth();
+
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const fetchProducts = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const response = await productService.getMyProducts();
+      if (response.success) {
+        setProducts(response.data);
+      }
+    } catch (err) {
+      setError("Failed to fetch products.");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  const handleAddProduct = async (productData) => {
+    try {
+      const response = await productService.addMyProduct(productData);
+      if (response.success) {
+        // Note: It's good practice to update auth data if the user object might have changed
+        // or if the token is refreshed on the backend.
+        setAuthData(response.data.token, response.data.user);
+        fetchProducts(); 
+      }
+    } catch (err) {
+       console.error("Failed to add product:", err);
+       // The modal component will handle displaying the error to the user
+       throw err;
+    }
+  };
+
+  const handleDeleteProduct = async (productId) => {
+    if (window.confirm("Are you sure you want to delete this product?")) {
+        try {
+            const response = await productService.deleteMyProduct(productId);
+            if (response.success) {
+                setAuthData(response.data.token, response.data.user);
+                fetchProducts();
+            }
+        } catch (err) {
+            setError("Failed to delete product.");
+            console.error(err);
+        }
+    }
+  };
+
+  const filteredProducts = products.filter(product => {
+    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = selectedCategory === 'All' || product.category === selectedCategory;
+    return matchesSearch && matchesCategory;
   });
 
-  const CATEGORIES = [
-    { value: "supplements", label: "Supplements" },
-    { value: "equipment", label: "Equipment" },
-    { value: "accessories", label: "Accessories" },
-    { value: "apparel", label: "Apparel" },
-    { value: "digital", label: "Digital Products" },
-  ];
-
-  const handleFeatureChange = (index, value) => {
-    const newFeatures = [...formData.features];
-    newFeatures[index] = value;
-    setFormData({ ...formData, features: newFeatures });
-  };
-
-  const addFeatureField = () => {
-    setFormData({ ...formData, features: [...formData.features, ''] });
-  };
-
-  const removeFeatureField = (index) => {
-    const newFeatures = formData.features.filter((_, i) => i !== index);
-    setFormData({ ...formData, features: newFeatures });
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    console.log("New Product Data:", formData);
-    // Later: API call
-    navigate('/merchant/products');
-  };
-
   return (
-    <div className="w-full animate-fade-in max-w-3xl mx-auto p-6">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">Add New Product</h1>
-        <p className="text-gray-300">Fill in product details to list in your store</p>
-      </div>
+    <div className="w-full animate-fade-in">
+      <AddProductModal 
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onProductAdded={handleAddProduct}
+      />
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Basic Info */}
-        <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">
-          <h2 className="text-lg font-bold text-white mb-4">Basic Information</h2>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Product Name *</label>
+      {/* Header */}
+      <div className="bg-transparent p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <div>
+            <h2 className="text-2xl font-bold text-white">Product Catalog</h2>
+            <p className="text-gray-300">Manage all your listed products</p>
+          </div>
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="bg-teal-600 hover:bg-teal-500 text-white font-bold py-2 px-6 rounded-lg transition"
+          >
+            + Add New Product
+          </button>
+        </div>
+        
+        {/* Filters */}
+        <div className="bg-gray-800 p-4 rounded-xl border border-gray-700 mb-6">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex-1">
               <input
                 type="text"
-                required
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                placeholder="e.g., Whey Protein Isolate"
+                placeholder="Search products..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Category *</label>
-              <select
-                required
-                value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500"
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="bg-gray-700 border border-gray-600 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500 min-w-40"
+            >
+              {CATEGORIES.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Products Grid */}
+      <div className="px-6 pb-8">
+        {loading && <p className="text-center text-gray-400">Loading products...</p>}
+        {error && <p className="text-center text-red-400">{error}</p>}
+        {!loading && !error && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {filteredProducts.map((product) => (
+              <div
+                key={product.id}
+                className="bg-gray-800 p-5 rounded-xl shadow-xl border border-gray-700 flex flex-col justify-between"
               >
-                <option value="">Select Category</option>
-                {CATEGORIES.map(cat => (
-                  <option key={cat.value} value={cat.value}>{cat.label}</option>
-                ))}
-              </select>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">Price ($)*</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  required
-                  value={formData.price}
-                  onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                  className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                  placeholder="0.00"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">Stock Quantity *</label>
-                <input
-                  type="number"
-                  min="0"
-                  required
-                  value={formData.stock}
-                  onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
-                  className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                  placeholder="100"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Description & Features */}
-        <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">
-          <h2 className="text-lg font-bold text-white mb-4">Description & Features</h2>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Product Description</label>
-              <textarea
-                rows="4"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                placeholder="Describe your product, benefits, usage instructions..."
-              ></textarea>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Key Features</label>
-              <div className="space-y-3">
-                {formData.features.map((feature, index) => (
-                  <div key={index} className="flex gap-2">
-                    <input
-                      type="text"
-                      value={feature}
-                      onChange={(e) => handleFeatureChange(index, e.target.value)}
-                      className="flex-1 bg-gray-700 border border-gray-600 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                      placeholder="e.g., 25g Protein per serving"
-                    />
-                    {formData.features.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeFeatureField(index)}
-                        className="bg-red-600 hover:bg-red-500 text-white px-3 rounded-lg transition"
-                      >
-                        ✕
-                      </button>
-                    )}
+                {/* ✅✅✅ THIS IS THE CORRECTED AND IMPROVED SECTION ✅✅✅ */}
+                <div>
+                  <div className="flex justify-end items-start mb-3">
+                    <span className={`text-xs px-2 py-1 rounded-full ${
+                      product.stock > 0 ? "bg-green-600 text-green-100" : "bg-red-600 text-red-100"
+                    }`}>
+                      {product.stock > 0 ? `${product.stock} in stock` : "Out of Stock"}
+                    </span>
                   </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={addFeatureField}
-                  className="text-teal-400 hover:text-teal-300 text-sm font-medium mt-2 flex items-center gap-1"
-                >
-                  + Add Feature
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
 
-        {/* Actions */}
-        <div className="flex gap-4 pt-4">
-          <button
-            type="submit"
-            className="bg-teal-600 hover:bg-teal-500 text-white font-bold py-3 px-8 rounded-lg transition transform hover:scale-105 shadow-md"
-          >
-            Save Product
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('/merchant/products')}
-            className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 px-8 rounded-lg transition"
-          >
-            Cancel
-          </button>
-        </div>
-      </form>
+                  <div className="flex justify-center mb-4 h-20">
+                    <img 
+                      src={product.images && product.images[0] ? product.images[0] : `https://via.placeholder.com/80/FFFFFF?text=${product.name.substring(0,2)}`} 
+                      alt={product.name} 
+                      className="w-20 h-20 object-contain"
+                      onError={(e) => {
+                        e.target.onerror = null; // Prevents infinite loop if placeholder also fails
+                        e.target.src = `https://via.placeholder.com/80/CCCCCC?text=Error`;
+                      }}
+                    />
+                  </div>
+                  <h3 className="text-white font-semibold text-sm mb-2 line-clamp-2 h-10">{product.name}</h3>
+                  <p className="text-teal-400 font-bold text-lg">${product.price.toFixed(2)}</p>
+                  <p className="text-gray-400 text-xs mb-4">{product.category}</p>
+                </div>
+
+                <div className="flex gap-2 w-full mt-4">
+                  <button className="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-xs py-2 px-3 rounded transition">
+                    Edit
+                  </button>
+                  <button 
+                    onClick={() => handleDeleteProduct(product.id)}
+                    className="flex-1 bg-red-700 hover:bg-red-600 text-white text-xs py-2 px-3 rounded transition"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {!loading && products.length === 0 && !error && (
+          <div className="text-center py-12 text-gray-500">
+            <h3 className="text-lg font-semibold">No products yet!</h3>
+            <p>Click "Add New Product" to get started.</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

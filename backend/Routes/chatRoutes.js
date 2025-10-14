@@ -1,21 +1,34 @@
-// Routes/chatRoutes.js
+// src/routes/chatRoutes.js
 import express from 'express';
 import * as chatController from '../controllers/chatController.js';
-import jwtAuth from '../middlewares/jwtAuth.js';
+import authGatekeeper from '../middlewares/authGatekeeper.js';
 import validate, {
     startConversationSchema,
     conversationIdParamSchema,
 } from '../validators/chatValidator.js';
 
 const router = express.Router();
-router.use(jwtAuth);
 
+// Add a route logger to debug
+router.use((req, res, next) => {
+  console.log(`Chat route: ${req.method} ${req.url}`);
+  next();
+});
+
+// Apply authGatekeeper authentication to all routes
+router.use(authGatekeeper);
+
+// Start a new conversation
 router.post(
     '/conversations',
     validate(startConversationSchema),
     chatController.startConversation
 );
+
+// Get all conversations for the current user
 router.get('/conversations', chatController.getConversations);
+
+// Get messages for a specific conversation
 router.get(
     '/conversations/:conversationId/messages',
     validate(conversationIdParamSchema),
@@ -23,4 +36,3 @@ router.get(
 );
 
 export default router;
-
