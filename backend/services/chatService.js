@@ -1,4 +1,3 @@
-// src/services/chatService.js
 import { PrismaClient } from '@prisma/client';
 import AppError from '../utils/AppError.js';
 import { sendPushNotification } from './notificationService.js'; 
@@ -57,7 +56,11 @@ export const getUserConversations = async (userId) => {
             orderBy: { updatedAt: 'desc' },
             include: {
               participants: { select: { id: true, email: true } },
-              messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+              messages: { 
+                orderBy: { createdAt: 'desc' }, 
+                take: 1,
+                include: { sender: { select: { id: true, email: true } } }
+              },
             }
         });
     } catch (error) {
@@ -68,8 +71,12 @@ export const getUserConversations = async (userId) => {
 
 export const getConversationMessages = async (userId, conversationId) => {
     try {
+        // First verify user has access to this conversation
         const conversation = await prisma.conversation.findFirst({
-            where: { id: conversationId, participants: { some: { id: userId } } }
+            where: { 
+                id: conversationId, 
+                participants: { some: { id: userId } } 
+            }
         });
         
         if (!conversation) {
@@ -79,7 +86,9 @@ export const getConversationMessages = async (userId, conversationId) => {
         return await prisma.message.findMany({
             where: { conversationId },
             orderBy: { createdAt: 'asc' },
-            include: { sender: { select: { id: true, email: true } } }
+            include: { 
+                sender: { select: { id: true, email: true } } 
+            }
         });
     } catch (error) {
         console.error('Error in getConversationMessages:', error);
@@ -89,9 +98,26 @@ export const getConversationMessages = async (userId, conversationId) => {
 
 export const createMessage = async (senderId, conversationId, content) => {
     try {
+        // First verify user has access to this conversation
+        const conversation = await prisma.conversation.findFirst({
+            where: { 
+                id: conversationId, 
+                participants: { some: { id: senderId } } 
+            }
+        });
+        
+        if (!conversation) {
+            throw new AppError('Conversation not found or you do not have access.', 404);
+        }
+
         const newMessage = await prisma.$transaction(async (tx) => {
             const message = await tx.message.create({
-                data: { senderId, conversationId, content },
+                data: { 
+                    senderId, 
+                    conversationId, 
+                    content,
+                    createdAt: new Date()
+                },
                 include: { 
                     sender: { select: { id: true, email: true } },
                     conversation: {
@@ -113,12 +139,12 @@ export const createMessage = async (senderId, conversationId, content) => {
             return message;
         });
 
-        // Send push notification
+        // Send push notification to other participants
         if (newMessage.conversation && newMessage.conversation.participants.length > 0) {
-          const recipient = newMessage.conversation.participants[0];
+          const recipients = newMessage.conversation.participants;
           
           await sendPushNotification(
-              [recipient.id],
+              recipients.map(r => r.id),
               {
                   title: `New message from ${newMessage.sender.email}`,
                   body: content,
@@ -135,4 +161,4 @@ export const createMessage = async (senderId, conversationId, content) => {
         console.error('Error in createMessage:', error);
         throw error;
     }
-}
+};

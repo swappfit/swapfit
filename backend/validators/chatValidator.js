@@ -1,4 +1,3 @@
-// src/validators/chatValidator.js
 import Joi from 'joi';
 import AppError from '../utils/AppError.js';
 
@@ -18,5 +17,9 @@ export const conversationIdParamSchema = Joi.object({
   conversationId: cuidSchema.label('Conversation ID').required(),
 });
 
-export default validate;
+export const sendMessageSchema = Joi.object({
+  conversationId: cuidSchema.label('Conversation ID').required(),
+  content: Joi.string().min(1).max(1000).required().label('Message content'),
+});
 
+export default validate;

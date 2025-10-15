@@ -9,7 +9,7 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 15000, // 15 seconds timeout for ngrok
+  timeout: 150000, // 15 seconds timeout for ngrok
 });
 
 // Request interceptor to add auth token

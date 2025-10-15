@@ -1,10 +1,10 @@
-// src/routes/chatRoutes.js
 import express from 'express';
 import * as chatController from '../controllers/chatController.js';
 import authGatekeeper from '../middlewares/authGatekeeper.js';
 import validate, {
     startConversationSchema,
     conversationIdParamSchema,
+    sendMessageSchema,
 } from '../validators/chatValidator.js';
 
 const router = express.Router();
@@ -33,6 +33,13 @@ router.get(
     '/conversations/:conversationId/messages',
     validate(conversationIdParamSchema),
     chatController.getMessages
+);
+
+// Send a message to a conversation
+router.post(
+    '/conversations/:conversationId/messages',
+    validate(sendMessageSchema),
+    chatController.sendMessage
 );
 
 export default router;

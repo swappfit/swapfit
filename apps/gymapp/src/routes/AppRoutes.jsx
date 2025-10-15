@@ -23,6 +23,7 @@ import GymProfile from '../pages/Gym/GymProfile';
 // ===== TRAINER =====
 import TrainerDashboard from '../pages/Trainer/TrainerDashboard';
 import TrainerClients from '../pages/Trainer/TrainerClients';
+import TrainerMessages from '../pages/Trainer/TrainerMessages'; // Added import for messages
 import TrainerPayments from '../pages/Trainer/TrainerPayments';
 import TrainerProfile from '../pages/Trainer/TrainerProfile';
 
@@ -105,6 +106,7 @@ const AppRoutes = () => {
           <Route index element={<TrainerDashboard />} />
           <Route path="dashboard" element={<TrainerDashboard />} />
           <Route path="clients" element={<TrainerClients />} />
+          <Route path="messages" element={<TrainerMessages />} /> {/* Added messages route */}
           <Route path="payments" element={<TrainerPayments />} />
           <Route path="profile" element={<TrainerProfile />} />
         </Route>
