@@ -1,9 +1,9 @@
-// src/pages/GymProfileForm.jsx
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as authService from '../api/authService';
 import parseApiError from '../utils/parseApiError';
 import { useAuth } from '../context/AuthContext';
+import { uploadMultipleImages } from '../utils/cloudinary';
 
 export default function GymProfileForm() {
   const [formData, setFormData] = useState({
@@ -22,6 +22,7 @@ export default function GymProfileForm() {
   const [errors, setErrors] = useState({});
   const [submitError, setSubmitError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [uploadingImages, setUploadingImages] = useState(false);
 
   const facilitiesOptions = ['Free Weights', 'Cardio Machines', 'Functional Training Area', 'Swimming Pool', 'Sauna & Steam Room', 'Locker Rooms', 'Parking', 'Wi-Fi'];
 
@@ -43,12 +44,24 @@ export default function GymProfileForm() {
   const handlePhotoChange = (e) => {
     const files = Array.from(e.target.files);
     if (formData.photos.length + files.length > 5) {
-        alert("You can only upload a maximum of 5 photos.");
-        return;
+      alert("You can only upload a maximum of 5 photos.");
+      return;
     }
     setFormData((prev) => ({ ...prev, photos: [...prev.photos, ...files] }));
     const previews = files.map(file => URL.createObjectURL(file));
     setPhotoPreviews(prev => [...prev, ...previews]);
+  };
+
+  const handleRemovePhoto = (index) => {
+    setFormData(prev => ({
+      ...prev,
+      photos: prev.photos.filter((_, i) => i !== index)
+    }));
+    setPhotoPreviews(prev => {
+      // Revoke the object URL to avoid memory leaks
+      URL.revokeObjectURL(prev[index]);
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   const handlePlanChange = (index, field, value) => {
@@ -102,24 +115,23 @@ export default function GymProfileForm() {
 
     const planNames = new Set();
     formData.plans.forEach((plan, index) => {
-        // Name validation
-        const trimmedName = plan.name.trim();
-        if (!trimmedName) {
-            newErrors[`planName-${index}`] = 'Plan name is required.';
-        } else if (planNames.has(trimmedName.toLowerCase())) {
-            newErrors[`planName-${index}`] = 'Plan names must be unique.';
-        } else {
-            planNames.add(trimmedName.toLowerCase());
-        }
+      // Name validation
+      const trimmedName = plan.name.trim();
+      if (!trimmedName) {
+        newErrors[`planName-${index}`] = 'Plan name is required.';
+      } else if (planNames.has(trimmedName.toLowerCase())) {
+        newErrors[`planName-${index}`] = 'Plan names must be unique.';
+      } else {
+        planNames.add(trimmedName.toLowerCase());
+      }
 
-        // Duration validation
-        if (!plan.duration.trim()) newErrors[`planDuration-${index}`] = 'Duration is required.';
-        
-        // ** MORE ROBUST PRICE VALIDATION **
-        // Check if price is null, undefined, an empty string, or not a positive number.
-        if (plan.price == null || plan.price === '' || isNaN(parseFloat(plan.price)) || parseFloat(plan.price) <= 0) {
-            newErrors[`planPrice-${index}`] = 'A valid, positive price is required.';
-        }
+      // Duration validation
+      if (!plan.duration.trim()) newErrors[`planDuration-${index}`] = 'Duration is required.';
+      
+      // Price validation
+      if (plan.price == null || plan.price === '' || isNaN(parseFloat(plan.price)) || parseFloat(plan.price) <= 0) {
+        newErrors[`planPrice-${index}`] = 'A valid, positive price is required.';
+      }
     });
 
     setErrors(newErrors);
@@ -137,32 +149,49 @@ export default function GymProfileForm() {
 
     setLoading(true);
     try {
-        const apiPayload = {
-            name: formData.name,
-            address: formData.address,
-            latitude: parseFloat(formData.latitude) || null,
-            longitude: parseFloat(formData.longitude) || null,
-            photos: formData.photos.map(file => `https://placehold.co/600x400?text=${encodeURIComponent(file.name || 'Image')}`),
-            facilities: formData.facilities,
-            plans: formData.plans
-                .filter(plan => plan.name.trim() && plan.duration.trim() && plan.price)
-                .map(p => ({ ...p, price: parseFloat(p.price) }))
-        };
-        
-        const response = await authService.createGymProfile(apiPayload);
-
-        if (response.success) {
-            setAuthData(response.data.token, response.data.user);
-            alert('✅ Gym profile submitted successfully!');
-            navigate('/dashboard'); 
-        } else {
-            throw new Error(response.message || 'An unknown error occurred.');
-        }
-    } catch (err) {
-        setSubmitError(parseApiError(err));
-        console.error("Gym profile creation failed:", err);
-    } finally {
+      // Upload images to Cloudinary first
+      setUploadingImages(true);
+      let uploadedPhotoUrls = [];
+      
+      try {
+        uploadedPhotoUrls = await uploadMultipleImages(formData.photos);
+      } catch (uploadError) {
+        setSubmitError("Failed to upload images. Please try again.");
+        console.error("Image upload failed:", uploadError);
         setLoading(false);
+        setUploadingImages(false);
+        return;
+      }
+      
+      setUploadingImages(false);
+
+      const apiPayload = {
+        name: formData.name,
+        address: formData.address,
+        latitude: parseFloat(formData.latitude) || null,
+        longitude: parseFloat(formData.longitude) || null,
+        photos: uploadedPhotoUrls, // Use the uploaded URLs instead of placeholders
+        facilities: formData.facilities,
+        plans: formData.plans
+          .filter(plan => plan.name.trim() && plan.duration.trim() && plan.price)
+          .map(p => ({ ...p, price: parseFloat(p.price) }))
+      };
+      
+      const response = await authService.createGymProfile(apiPayload);
+
+      if (response.success) {
+        setAuthData(response.data.token, response.data.user);
+        alert('✅ Gym profile submitted successfully!');
+        navigate('/dashboard'); 
+      } else {
+        throw new Error(response.message || 'An unknown error occurred.');
+      }
+    } catch (err) {
+      setSubmitError(parseApiError(err));
+      console.error("Gym profile creation failed:", err);
+    } finally {
+      setLoading(false);
+      setUploadingImages(false);
     }
   };
 
@@ -181,12 +210,30 @@ export default function GymProfileForm() {
           <div className="space-y-6">
             <div>
               <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-2">Gym Name</label>
-              <input id="name" name="name" type="text" value={formData.name} onChange={handleChange} className={`w-full bg-gray-800 border ${errors.name ? 'border-red-500' : 'border-gray-600'} rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500`} placeholder="Elite Fitness Center" required />
+              <input 
+                id="name" 
+                name="name" 
+                type="text" 
+                value={formData.name} 
+                onChange={handleChange} 
+                className={`w-full bg-gray-800 border ${errors.name ? 'border-red-500' : 'border-gray-600'} rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500`} 
+                placeholder="Elite Fitness Center" 
+                required 
+              />
               {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
             </div>
             <div>
               <label htmlFor="address" className="block text-sm font-medium text-gray-300 mb-2">Full Address</label>
-              <input id="address" name="address" type="text" value={formData.address} onChange={handleChange} className={`w-full bg-gray-800 border ${errors.address ? 'border-red-500' : 'border-gray-600'} rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500`} placeholder="e.g., 123 Fitness St, New York, NY 10001" required />
+              <input 
+                id="address" 
+                name="address" 
+                type="text" 
+                value={formData.address} 
+                onChange={handleChange} 
+                className={`w-full bg-gray-800 border ${errors.address ? 'border-red-500' : 'border-gray-600'} rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500`} 
+                placeholder="e.g., 123 Fitness St, New York, NY 10001" 
+                required 
+              />
               {errors.address && <p className="text-red-400 text-xs mt-1">{errors.address}</p>}
             </div>
           </div>
@@ -194,12 +241,33 @@ export default function GymProfileForm() {
           <div className="space-y-4">
             <label className="block text-sm font-medium text-gray-300">Location Coordinates</label>
             <div className="flex items-center gap-4">
-                <input name="latitude" type="number" step="any" value={formData.latitude} onChange={handleChange} placeholder="Latitude" className={`w-full bg-gray-800 border ${errors.location ? 'border-red-500' : 'border-gray-600'} rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500`} />
-                <input name="longitude" type="number" step="any" value={formData.longitude} onChange={handleChange} placeholder="Longitude" className={`w-full bg-gray-800 border ${errors.location ? 'border-red-500' : 'border-gray-600'} rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500`} />
+              <input 
+                name="latitude" 
+                type="number" 
+                step="any" 
+                value={formData.latitude} 
+                onChange={handleChange} 
+                placeholder="Latitude" 
+                className={`w-full bg-gray-800 border ${errors.location ? 'border-red-500' : 'border-gray-600'} rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500`} 
+              />
+              <input 
+                name="longitude" 
+                type="number" 
+                step="any" 
+                value={formData.longitude} 
+                onChange={handleChange} 
+                placeholder="Longitude" 
+                className={`w-full bg-gray-800 border ${errors.location ? 'border-red-500' : 'border-gray-600'} rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500`} 
+              />
             </div>
             {errors.location && <p className="text-red-400 text-xs mt-1">{errors.location}</p>}
-            <button type="button" onClick={handleGetLocation} disabled={loading} className="px-4 py-2 text-sm font-medium text-teal-300 bg-teal-800/50 rounded-lg hover:bg-teal-800/80 transition-colors">
-                📍 Get My Current Location
+            <button 
+              type="button" 
+              onClick={handleGetLocation} 
+              disabled={loading} 
+              className="px-4 py-2 text-sm font-medium text-teal-300 bg-teal-800/50 rounded-lg hover:bg-teal-800/80 transition-colors"
+            >
+              📍 Get My Current Location
             </button>
           </div>
 
@@ -208,12 +276,18 @@ export default function GymProfileForm() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               {facilitiesOptions.map((facility) => (
                 <label key={facility} className="flex items-center p-3 bg-gray-800 border border-gray-700 rounded-lg cursor-pointer hover:bg-gray-700 transition-colors">
-                  <input type="checkbox" value={facility} checked={formData.facilities.includes(facility)} onChange={handleCheckboxChange} className="h-4 w-4 text-teal-500 bg-gray-700 border-gray-600 rounded focus:ring-teal-500" />
+                  <input 
+                    type="checkbox" 
+                    value={facility} 
+                    checked={formData.facilities.includes(facility)} 
+                    onChange={handleCheckboxChange} 
+                    className="h-4 w-4 text-teal-500 bg-gray-700 border-gray-600 rounded focus:ring-teal-500" 
+                  />
                   <span className="ml-3 text-sm text-gray-200">{facility}</span>
                 </label>
               ))}
             </div>
-             {errors.facilities && <p className="text-red-400 text-xs mt-1">{errors.facilities}</p>}
+            {errors.facilities && <p className="text-red-400 text-xs mt-1">{errors.facilities}</p>}
           </div>
 
           <div>
@@ -222,48 +296,100 @@ export default function GymProfileForm() {
               {formData.plans.map((plan, index) => (
                 <div key={index} className="flex flex-col sm:flex-row items-start gap-3 p-4 bg-gray-800 border border-gray-700 rounded-lg">
                   <div className="w-full sm:w-1/3">
-                    <input type="text" value={plan.name} onChange={e => handlePlanChange(index, 'name', e.target.value)} placeholder="Plan Name (e.g., Gold)" className={`w-full bg-gray-700 border ${errors[`planName-${index}`] ? 'border-red-500' : 'border-gray-600'} rounded-lg p-3`} required />
+                    <input 
+                      type="text" 
+                      value={plan.name} 
+                      onChange={e => handlePlanChange(index, 'name', e.target.value)} 
+                      placeholder="Plan Name (e.g., Gold)" 
+                      className={`w-full bg-gray-700 border ${errors[`planName-${index}`] ? 'border-red-500' : 'border-gray-600'} rounded-lg p-3`} 
+                      required 
+                    />
                     {errors[`planName-${index}`] && <p className="text-red-400 text-xs mt-1">{errors[`planName-${index}`]}</p>}
                   </div>
                   <div className="w-full sm:w-1/3">
-                     <select 
-                        value={plan.duration} 
-                        onChange={e => handlePlanChange(index, 'duration', e.target.value)} 
-                        className={`w-full bg-gray-700 border ${errors[`planDuration-${index}`] ? 'border-red-500' : 'border-gray-600'} rounded-lg p-3 appearance-none`} 
-                        required
-                     >
-                        <option value="month">Month</option>
-                        <option value="year">Year</option>
-                        <option value="week">Week</option>
-                        <option value="day">Day</option>
-                     </select>
-                     {errors[`planDuration-${index}`] && <p className="text-red-400 text-xs mt-1">{errors[`planDuration-${index}`]}</p>}
+                    <select 
+                      value={plan.duration} 
+                      onChange={e => handlePlanChange(index, 'duration', e.target.value)} 
+                      className={`w-full bg-gray-700 border ${errors[`planDuration-${index}`] ? 'border-red-500' : 'border-gray-600'} rounded-lg p-3 appearance-none`} 
+                      required
+                    >
+                      <option value="month">Month</option>
+                      <option value="year">Year</option>
+                      <option value="week">Week</option>
+                      <option value="day">Day</option>
+                    </select>
+                    {errors[`planDuration-${index}`] && <p className="text-red-400 text-xs mt-1">{errors[`planDuration-${index}`]}</p>}
                   </div>
-                   <div className="w-full sm:w-1/3">
-                     <input type="number" value={plan.price} onChange={e => handlePlanChange(index, 'price', e.target.value)} placeholder="Price ($)" className={`w-full bg-gray-700 border ${errors[`planPrice-${index}`] ? 'border-red-500' : 'border-gray-600'} rounded-lg p-3`} required />
-                     {errors[`planPrice-${index}`] && <p className="text-red-400 text-xs mt-1">{errors[`planPrice-${index}`]}</p>}
+                  <div className="w-full sm:w-1/3">
+                    <input 
+                      type="number" 
+                      value={plan.price} 
+                      onChange={e => handlePlanChange(index, 'price', e.target.value)} 
+                      placeholder="Price ($)" 
+                      className={`w-full bg-gray-700 border ${errors[`planPrice-${index}`] ? 'border-red-500' : 'border-gray-600'} rounded-lg p-3`} 
+                      required 
+                    />
+                    {errors[`planPrice-${index}`] && <p className="text-red-400 text-xs mt-1">{errors[`planPrice-${index}`]}</p>}
                   </div>
-                  <button type="button" onClick={() => removePlan(index)} className="text-gray-500 hover:text-red-400 font-bold text-2xl p-1 self-center transition-colors">&times;</button>
+                  <button 
+                    type="button" 
+                    onClick={() => removePlan(index)} 
+                    className="text-gray-500 hover:text-red-400 font-bold text-2xl p-1 self-center transition-colors"
+                  >
+                    ×
+                  </button>
                 </div>
               ))}
             </div>
-            <button type="button" onClick={addPlan} className="mt-4 px-4 py-2 text-sm font-medium text-teal-300 bg-teal-800/50 rounded-lg hover:bg-teal-800/80 transition-colors">+ Add Another Plan</button>
+            <button 
+              type="button" 
+              onClick={addPlan} 
+              className="mt-4 px-4 py-2 text-sm font-medium text-teal-300 bg-teal-800/50 rounded-lg hover:bg-teal-800/80 transition-colors"
+            >
+              + Add Another Plan
+            </button>
           </div>
           
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">Gym Photos (up to 5)</label>
-            <input type="file" name="photos" onChange={handlePhotoChange} multiple accept="image/*" className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-gray-700 file:text-gray-300 hover:file:bg-gray-600"/>
+            <input 
+              type="file" 
+              name="photos" 
+              onChange={handlePhotoChange} 
+              multiple 
+              accept="image/*" 
+              className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-gray-700 file:text-gray-300 hover:file:bg-gray-600"
+            />
             {errors.photos && <p className="text-red-400 text-xs mt-1">{errors.photos}</p>}
             {photoPreviews.length > 0 && (
               <div className="mt-4 grid grid-cols-3 sm:grid-cols-5 gap-4">
-                {photoPreviews.map((src, i) => <img key={i} src={src} alt={`Gym preview ${i+1}`} className="w-full h-24 object-cover rounded-lg"/>)}
+                {photoPreviews.map((src, i) => (
+                  <div key={i} className="relative">
+                    <img 
+                      src={src} 
+                      alt={`Gym preview ${i+1}`} 
+                      className="w-full h-24 object-cover rounded-lg"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePhoto(i)}
+                      className="absolute top-0 right-0 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
 
           <div className="pt-5 border-t border-gray-700">
-            <button type="submit" disabled={loading} className="w-full bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg transition-colors">
-              {loading ? 'Submitting...' : 'Create Gym Profile'}
+            <button 
+              type="submit" 
+              disabled={loading || uploadingImages} 
+              className="w-full bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg transition-colors"
+            >
+              {loading ? (uploadingImages ? 'Uploading images...' : 'Submitting...') : 'Create Gym Profile'}
             </button>
           </div>
         </form>

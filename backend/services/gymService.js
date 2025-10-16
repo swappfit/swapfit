@@ -18,87 +18,69 @@ export const getAll = async (queryParams) => {
   let lat = queryParams.lat;
   let lon = queryParams.lon;
   let radius = queryParams.radius !== undefined ? parseFloat(queryParams.radius) : 10;
-  let page = queryParams.page !== undefined ? parseInt(queryParams.page, 10) : 1;
-  let limit = queryParams.limit !== undefined ? parseInt(queryParams.limit, 10) : 50;
 
   // Defensive fallback to valid numbers
   radius = isNaN(radius) || radius <= 0 ? 10 : radius;
-  page = isNaN(page) || page < 1 ? 1 : page;
-  limit = isNaN(limit) || limit < 1 ? 50 : limit;
 
-  const skip = (page - 1) * limit;
-
-  console.log('[GymService:getAll] Request received:', { lat, lon, radius, page, limit });
+  console.log('[GymService:getAll] Request received:', { lat, lon, radius });
 
   if (lat && lon) {
     try {
+      // The LIMIT clause has been removed to fetch all gyms within the radius
       const gyms = await prisma.$queryRaw`
-  SELECT *, (
-    6371 * acos(
-      cos(radians(${lat})) * cos(radians(latitude)) *
-      cos(radians(longitude) - radians(${lon})) +
-      sin(radians(${lat})) * sin(radians(latitude))
-    )
-  ) AS distance
-  FROM \`Gym\`
-  WHERE latitude IS NOT NULL AND longitude IS NOT NULL
-  HAVING (
-    6371 * acos(
-      cos(radians(${lat})) * cos(radians(latitude)) *
-      cos(radians(longitude) - radians(${lon})) +
-      sin(radians(${lat})) * sin(radians(latitude))
-    )
-  ) < ${radius}
-  ORDER BY distance
-  LIMIT ${limit};
-`
+        SELECT *, (
+          6371 * acos(
+            cos(radians(${lat})) * cos(radians(latitude)) *
+            cos(radians(longitude) - radians(${lon})) +
+            sin(radians(${lat})) * sin(radians(latitude))
+          )
+        ) AS distance
+        FROM \`Gym\`
+        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+        HAVING (
+          6371 * acos(
+            cos(radians(${lat})) * cos(radians(latitude)) *
+            cos(radians(longitude) - radians(${lon})) +
+            sin(radians(${lat})) * sin(radians(latitude))
+          )
+        ) < ${radius}
+        ORDER BY distance;
+      `;
 
       console.log(`[GymService:getAll] Found ${gyms.length} gyms within radius.`);
 
+      // Response simplified to only include gyms and total count
       return {
         gyms,
         total: gyms.length,
-        page,
-        limit,
-        totalPages: gyms.length ? 1 : 0,
       };
     } catch (err) {
       console.error('[GymService:getAll] Error in location-based query:', err);
       return {
         gyms: [],
         total: 0,
-        page,
-        limit,
-        totalPages: 0,
         error: 'Query error',
       };
     }
   }
 
-  // Fallback: Paginated fetch all gyms
+  // Fallback: Fetch all gyms without pagination
   try {
-    const [gyms, total] = await prisma.$transaction([
-      prisma.gym.findMany({ skip, take: limit, orderBy: { name: 'asc' } }),
-      prisma.gym.count(),
-    ]);
+    const gyms = await prisma.gym.findMany({ orderBy: { name: 'asc' } });
+    const total = gyms.length;
 
-    console.log(`[GymService:getAll] Found ${gyms.length} gyms (paged, total: ${total}).`);
+    console.log(`[GymService:getAll] Found ${gyms.length} gyms in total.`);
 
+    // Response simplified to only include gyms and total count
     return {
       gyms,
       total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
     };
   } catch (err) {
-    console.error('[GymService:getAll] Error in paginated gym fetch:', err);
+    console.error('[GymService:getAll] Error in fetching all gyms:', err);
     return {
       gyms: [],
       total: 0,
-      page,
-      limit,
-      totalPages: 0,
       error: 'Query error',
     };
   }
@@ -318,4 +300,3 @@ export const getMyMembers = async (ownerId) => {
         }
     });
 };
-
