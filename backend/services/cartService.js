@@ -7,7 +7,8 @@ const { ChargeBee } = chargebeeModule;
 const chargebee = new ChargeBee();
 chargebee.configure({
   site: process.env.CHARGEBEE_SITE,
-  api_key: process.env.CHARGEBEE_API_KEY
+  api_key: process.env.CHARGEBEE_API_KEY,
+  api_version: 'v2',
 });
 
 const prisma = new PrismaClient();
