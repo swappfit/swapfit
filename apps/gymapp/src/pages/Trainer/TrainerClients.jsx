@@ -2,29 +2,33 @@
 import React, { useState, useEffect, useCallback } from "react";
 import * as trainerService from "../../api/trainerService";
 import { useAuth } from "../../context/AuthContext";
-// Use Lucide icons which are compatible with your React Web/Tailwind setup
-import { MessageSquare, Star, RefreshCw, AlertTriangle, UserCheck } from 'lucide-react'; 
+import { Star, RefreshCw, AlertTriangle, UserCheck, X, Check } from 'lucide-react'; 
 
-// You must change the default export structure to a named export
-export default function TrainerClients() {
+export default function TrainerClients({ onClose }) {
   const [clients, setClients] = useState([]);
   const [selectedClient, setSelectedClient] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const { user } = useAuth(); // Get the current user (trainer)
+  const [refreshing, setRefreshing] = useState(false);
+  const [showRefreshSuccess, setShowRefreshSuccess] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { user, isAuthenticated } = useAuth();
 
   // Function to fetch real client data from the backend
   const fetchClients = useCallback(async () => {
-    if (!user) return;
+    if (!user || !isAuthenticated) {
+      setError("You must be logged in to view clients");
+      setIsLoading(false);
+      return;
+    }
+    
     setIsLoading(true);
     setError(null);
     try {
-        // ✅ CALL THE CORRECT SERVICE FUNCTION
         const response = await trainerService.getMyClients(); 
         if (response.success && Array.isArray(response.data)) {
-            // Map the real subscription data to the structure the component expects
             const formattedClients = response.data.map(sub => ({
                 id: sub.user.id,
                 name: sub.user.memberProfile?.name || sub.user.email.split('@')[0], 
@@ -38,7 +42,7 @@ export default function TrainerClients() {
                     { day: "Thu", value: 1 }, { day: "Fri", value: 0 }, { day: "Sat", value: 1 }, { day: "Sun", value: 0 }
                 ],
                 bio: sub.user.memberProfile?.fitnessGoal || 'No goal set.',
-                isOnline: Math.random() > 0.5, // Mock online status
+                isOnline: Math.random() > 0.5,
             }));
             setClients(formattedClients);
         } else {
@@ -49,15 +53,50 @@ export default function TrainerClients() {
         setError(err.response?.data?.message || 'Failed to load clients. Please check your network.');
         console.error("Fetch Clients Error:", err);
     } finally {
-        setIsLoading(false);
+      setIsLoading(false);
     }
-  }, [user]);
+  }, [user, isAuthenticated]);
 
   useEffect(() => {
-    fetchClients();
-  }, [user, fetchClients]);
+    if (isAuthenticated) {
+      fetchClients();
+    }
+  }, [isAuthenticated, fetchClients]);
 
-  // ✅ Attendance Chart Component (unchanged)
+  // Handle close action
+  const handleClose = () => {
+    if (isRefreshing) {
+      return;
+    }
+    
+    if (onClose) {
+      onClose();
+    }
+  };
+
+  // Handle refresh
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    setRefreshing(true);
+    setShowRefreshSuccess(false);
+    
+    try {
+      await fetchClients();
+      setShowRefreshSuccess(true);
+      
+      setTimeout(() => {
+        setShowRefreshSuccess(false);
+        setRefreshing(false);
+        setIsRefreshing(false);
+      }, 2000);
+    } catch (error) {
+      console.error("Error refreshing clients:", error);
+      setRefreshing(false);
+      setIsRefreshing(false);
+    }
+  };
+
+  // Attendance Chart Component
   const AttendanceChart = ({ data = [] }) => {
     const totalDays = data.length;
     const attendedDays = data.filter(d => d.value > 0).length;
@@ -95,22 +134,67 @@ export default function TrainerClients() {
     );
   };
 
-  // Filtered Clients (now filters real data)
+  // Filtered Clients
   const filteredClients =
     statusFilter === "all"
       ? clients.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()))
       : clients.filter((client) => client.status === statusFilter && client.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
   // Fallback for ActivityIndicator
-  const CustomActivityIndicator = () => <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>;
+  const CustomActivityIndicator = () => (
+    <div className="flex justify-center items-center">
+      <svg className="animate-spin h-8 w-8 text-teal-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+    </div>
+  );
+
+  // Handle authentication state
+  if (!isAuthenticated) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white p-6">
+        <AlertTriangle className="h-12 w-12 text-red-500 mb-4" />
+        <h2 className="text-xl font-bold mb-2">Authentication Required</h2>
+        <p className="text-gray-400 mb-6 text-center max-w-md">
+          You need to be logged in to view your clients. Please log in to continue.
+        </p>
+        <button 
+          onClick={() => window.location.href = '/login'} 
+          className="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded"
+        >
+          Go to Login
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 bg-gray-900 min-h-screen text-white">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold">Clients</h1>
-        <p className="text-gray-400 mt-2">
-          {isLoading ? "Loading clients..." : `Manage, track, and grow your ${filteredClients.length} client relationships`}
-        </p>
+      {/* Header with Close Button */}
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-3xl font-bold">Clients</h1>
+          <p className="text-gray-400 mt-2">
+            {isLoading ? "Loading clients..." : `Manage, track, and grow your ${filteredClients.length} client relationships`}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {showRefreshSuccess && (
+            <div className="flex items-center gap-2 px-3 py-1 bg-green-600 rounded-lg">
+              <Check size={16} className="text-white" />
+              <span className="text-white text-sm">Data refreshed</span>
+            </div>
+          )}
+          <button
+            onClick={handleClose}
+            className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors"
+            title="Close"
+            disabled={isRefreshing}
+          >
+            <X size={24} className={`${isRefreshing ? "text-gray-600" : "text-gray-400"}`} />
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -122,6 +206,7 @@ export default function TrainerClients() {
               ? "bg-teal-600"
               : "bg-gray-700 hover:bg-gray-600"
           }`}
+          disabled={isRefreshing}
         >
           All
         </button>
@@ -132,6 +217,7 @@ export default function TrainerClients() {
               ? "bg-green-600"
               : "bg-gray-700 hover:bg-gray-600"
           }`}
+          disabled={isRefreshing}
         >
           Active
         </button>
@@ -142,6 +228,7 @@ export default function TrainerClients() {
               ? "bg-red-600"
               : "bg-gray-700 hover:bg-gray-600"
           }`}
+          disabled={isRefreshing}
         >
           Inactive
         </button>
@@ -151,6 +238,7 @@ export default function TrainerClients() {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="bg-gray-700 border border-gray-600 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500 ml-auto"
+            disabled={isRefreshing}
           />
       </div>
 
@@ -159,18 +247,20 @@ export default function TrainerClients() {
         {/* Loading and Error States */}
         {isLoading ? (
             <div className="lg:col-span-3 text-center py-20">
-                <CustomActivityIndicator size="large" color="#FFC107" />
+                <CustomActivityIndicator />
                 <p className="text-gray-400 mt-3">Loading clients...</p>
             </div>
         ) : error ? (
             <div className="lg:col-span-3 text-center py-20">
-                <p className="text-red-400">{error}</p>
-                <button onClick={fetchClients} className="mt-4 bg-teal-600 text-white px-4 py-2 rounded-lg">Try Again</button>
+                <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+                <p className="text-red-400 mb-4">{error}</p>
+                <button onClick={fetchClients} className="mt-4 bg-teal-600 text-white px-4 py-2 rounded-lg" disabled={isRefreshing}>Try Again</button>
             </div>
         ) : filteredClients.length === 0 ? (
              <div className="lg:col-span-3 text-center py-20">
+                <UserCheck className="h-12 w-12 text-gray-500 mx-auto mb-4" />
                 <p className="text-gray-400">No clients found for this filter.</p>
-            </div>
+             </div>
         ) : (
              <>
                {/* Clients List */}
@@ -178,8 +268,7 @@ export default function TrainerClients() {
                  {filteredClients.map((client) => (
                    <div
                      key={client.id}
-                     onClick={() => setSelectedClient(client)}
-                     className={`bg-gray-800 p-6 rounded-xl shadow-xl border cursor-pointer ${
+                     className={`bg-gray-800 p-6 rounded-xl shadow-xl border ${
                        selectedClient?.id === client.id
                          ? "border-teal-500"
                          : "border-gray-700"
@@ -208,7 +297,6 @@ export default function TrainerClients() {
                            </span>
                          </div>
                        </div>
-                       <MessageSquare size={24} className="text-teal-400" />
                      </div>
                    </div>
                  ))}
@@ -243,14 +331,29 @@ export default function TrainerClients() {
                  <div className="bg-gray-800 p-6 rounded-xl shadow-xl border border-gray-700">
                    <h3 className="text-xl font-bold mb-4">Quick Actions</h3>
                    <div className="space-y-3">
-                     <button className="w-full text-left px-4 py-3 rounded-lg bg-gray-700 hover:bg-gray-600">
-                       Send Announcement
-                     </button>
-                     <button className="w-full text-left px-4 py-3 rounded-lg bg-gray-700 hover:bg-gray-600">
+                     <button className="w-full text-left px-4 py-3 rounded-lg bg-gray-700 hover:bg-gray-600 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed" disabled={isRefreshing}>
+                       <Star size={16} />
                        Schedule Session
                      </button>
-                     <button className="w-full text-left px-4 py-3 rounded-lg bg-gray-700 hover:bg-gray-600">
-                       Export Report
+                     <button 
+                       onClick={handleRefresh}
+                       disabled={refreshing || isRefreshing}
+                       className="w-full text-left px-4 py-3 rounded-lg bg-gray-700 hover:bg-gray-600 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                     >
+                       {refreshing || isRefreshing ? (
+                         <>
+                           <svg className="animate-spin h-4 w-4 text-teal-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                           </svg>
+                           <span className="ml-2 text-white">Refreshing...</span>
+                         </>
+                       ) : (
+                         <>
+                           <RefreshCw size={16} />
+                           <span>Refresh Data</span>
+                         </>
+                       )}
                      </button>
                    </div>
                  </div>

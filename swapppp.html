@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SWAPP.FIT Technical Architecture Documentation (V1.0)</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+        
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        
+        h1 {
+            text-align: center;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+        }
+        
+        h2 {
+            margin-top: 30px;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 5px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            box-shadow: 0 2px 3px rgba(0,0,0,0.1);
+        }
+        
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background-color: #3498db;
+            color: white;
+            font-weight: bold;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        
+        tr:hover {
+            background-color: #e9f7fe;
+        }
+        
+        .status-complete {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        
+        .status-partial {
+            color: #f39c12;
+            font-weight: bold;
+        }
+        
+        .section {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        
+        .note {
+            font-style: italic;
+            color: #7f8c8d;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <h1>SWAPP.FIT TECHNICAL ARCHITECTURE DOCUMENTATION (V1.0)</h1>
+    
+    <div class="section">
+        <h2>I. Project Foundation and Core Architecture</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Component</th>
+                    <th>Technology</th>
+                    <th>Role</th>
+                    <th>Key Architectural Feature</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Backend</td>
+                    <td>Node.js (Express) / Prisma (MySQL)</td>
+                    <td>Central API & Business Logic</td>
+                    <td>Monorepo structure designed for maintainability.</td>
+                </tr>
+                <tr>
+                    <td>Identity</td>
+                    <td>Auth0</td>
+                    <td>Centralized Authentication</td>
+                    <td>Single source of truth across all platforms.</td>
+                </tr>
+                <tr>
+                    <td>Billing Engine</td>
+                    <td>Chargebee</td>
+                    <td>Subscription Management</td>
+                    <td>Handles dynamic plan creation and recurring billing for services.</td>
+                </tr>
+                <tr>
+                    <td>Client Apps</td>
+                    <td>React Web (Admin/Owner Portal) / React Native (Member App)</td>
+                    <td>Presentation Layers</td>
+                    <td>Modular architecture with separate hooks and components.</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="section">
+        <h2>II. Identity & Security Flows (The Foundation)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Auth Flow</th>
+                    <th>Client</th>
+                    <th>Middleware/Service Used</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Web/Admin Login</td>
+                    <td>React Web</td>
+                    <td>POST /auth/verify-user / verify-user-admin</td>
+                    <td>Exchanges Auth0 token for Internal JWT.</td>
+                </tr>
+                <tr>
+                    <td>Mobile Login</td>
+                    <td>React Native</td>
+                    <td>POST /auth/verify-member</td>
+                    <td>Verifies Auth0 token and grants access.</td>
+                </tr>
+                <tr>
+                    <td>Access Control</td>
+                    <td>All Protected Routes</td>
+                    <td>AuthGatekeeper & Role-Based Access</td>
+                    <td>Enforces access based on GYM_OWNER, TRAINER, or MERCHANT roles.</td>
+                </tr>
+                <tr>
+                    <td>Identity Sync</td>
+                    <td>Webhook</td>
+                    <td>subscriptionService.processWebhook</td>
+                    <td>Data Synchronization: Uses customer.email to find the internal user and set chargebeeCustomerId.</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="section">
+        <h2>III. Application Feature Status and Scope</h2>
+        <p class="note">This table details the full scope of your platform and the status of each major module.</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Feature Module</th>
+                    <th>Sub-Features Included</th>
+                    <th>Status</th>
+                    <th>Key Backend Service / Component</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Provider Onboarding</td>
+                    <td>Gym, Trainer, Merchant Profile Creation & Data Validation.</td>
+                    <td class="status-complete">✅ COMPLETE</td>
+                    <td>authService.createProfile</td>
+                </tr>
+                <tr>
+                    <td>Dynamic Plan Creation</td>
+                    <td>Gym and Trainer add plans during onboarding.</td>
+                    <td class="status-complete">✅ COMPLETE</td>
+                    <td>authService (Atomic Item/Price creation in Chargebee).</td>
+                </tr>
+                <tr>
+                    <td>Gym Discovery</td>
+                    <td>Map with Current Location, Nearby Gyms List, Full Gym Profile View.</td>
+                    <td class="status-complete">✅ COMPLETE</td>
+                    <td>gymService.getAll (Optimized SQL), gymService.getById.</td>
+                </tr>
+                <tr>
+                    <td>Trainer Listing</td>
+                    <td>Browse Trainers List, View Trainer Profile.</td>
+                    <td class="status-complete">✅ COMPLETE</td>
+                    <td>trainerService.browseTrainers, trainerService.getById.</td>
+                </tr>
+                <tr>
+                    <td>Subscription Flow</td>
+                    <td>Initiate Checkout for Gym & Trainer Plans, Billing Portal Access.</td>
+                    <td class="status-complete">✅ COMPLETE</td>
+                    <td>subscriptionService.createCheckoutSession & createPortalSession.</td>
+                </tr>
+                <tr>
+                    <td>Access Control</td>
+                    <td>Check-in functionality requiring active subscription to the specific Gym/Trainer.</td>
+                    <td class="status-complete">✅ COMPLETE</td>
+                    <td>gymService.checkIn (Verifies Subscription table).</td>
+                </tr>
+                <tr>
+                    <td>Member E-commerce (Store)</td>
+                    <td>Product Listing, Cart Functionality (Lacks final Checkout/Billing Address).</td>
+                    <td class="status-partial">70% COMPLETE</td>
+                    <td>merchantService.getProducts (Listing).</td>
+                </tr>
+                <tr>
+                    <td>Gym/Trainer Client Mgt.</td>
+                    <td>View all actively subscribed members/clients.</td>
+                    <td class="status-complete">✅ COMPLETE</td>
+                    <td>gymService.getMyMembers, trainerService.getSubscribers.</td>
+                </tr>
+                <tr>
+                    <td>Notification System</td>
+                    <td>Gym/Trainer send notifications; Member receives them.</td>
+                    <td class="status-complete">✅ COMPLETE</td>
+                    <td>gymService.sendNotificationToGym (Backend Logic is ready).</td>
+                </tr>
+                <tr>
+                    <td>Diet & Workout Logging</td>
+                    <td>Full Diet Log and Workout Log features.</td>
+                    <td class="status-complete">✅ COMPLETE</td>
+                    <td>(Implied data structure is fully supported by Schema).</td>
+                </tr>
+                <tr>
+                    <td>Community</td>
+                    <td>Posting, Commenting, Liking, Social Interaction.</td>
+                    <td class="status-complete">✅ COMPLETE</td>
+                    <td>(Implied data structure is fully supported by Schema).</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
