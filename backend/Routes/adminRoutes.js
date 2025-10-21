@@ -1,4 +1,4 @@
-// Routes/adminRoutes.js
+// src/Routes/adminRoutes.js
 import express from 'express';
 import jwtAuth from '../middlewares/jwtAuth.js';
 import adminAuth from '../middlewares/adminAuth.js';
@@ -11,7 +11,10 @@ import validate, {
     createChallengeSchema,
     updateChallengeSchema,
     challengeIdParamSchema,
-    broadcastNotificationSchema
+    broadcastNotificationSchema,
+    // --- NEW VALIDATORS FOR MULTI-GYM TIERS ---
+    createMultiGymTierSchema,
+    assignGymToTierSchema
 } from '../validators/adminValidator.js';
 
 const router = express.Router();
@@ -30,8 +33,6 @@ router.get('/users', adminController.getUsers);
 // --- Admin Schedules (placeholder) ---
 router.get('/schedules', adminController.getSchedules);
 
-
-
 // --- Notification Management by Admin ---
 router.post(
     '/notifications/broadcast',
@@ -39,5 +40,10 @@ router.post(
     adminController.sendBroadcastNotification
 );
 
-export default router;
+// --- NEW: Multi-Gym Tier Management ---
+router.post('/multi-gym-tiers', validate(createMultiGymTierSchema), adminController.createMultiGymTier);
+router.get('/multi-gym-tiers', adminController.getMultiGymTiers);
+router.patch('/gyms/:gymId/assign-tier', validate(assignGymToTierSchema), adminController.assignGymToTier);
 
+
+export default router;

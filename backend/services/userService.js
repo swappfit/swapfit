@@ -46,8 +46,11 @@ export const updateUserProfile = async (user, updateData) => {
   }
 };
 
+
+
 /**
- * @description Fetches the full user object including their role-specific profile and active subscriptions.
+ * @description Fetches the full user object, including their role-specific profile,
+ * active subscriptions, and available multi-gym tiers for purchase.
  */
 export const getUserProfile = async (userId) => {
   console.log(`[UserService] Attempting to fetch full profile for User ID: ${userId}`);
@@ -56,35 +59,48 @@ export const getUserProfile = async (userId) => {
   }
 
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-          memberProfile: true,
-          trainerProfile: true,
-          managedGyms: { take: 1 }, // Assuming a user manages at most one gym
-          merchantProfile: true,
-          // ✅ THIS IS THE CRITICAL ADDITION
-          subscriptions: {
-            where: {
-              status: 'active' // Only fetch their active subscriptions
+    // Use a transaction to fetch user data and available tiers in parallel
+    const [user, availableTiers] = await prisma.$transaction([
+      prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+            memberProfile: true,
+            trainerProfile: true,
+            managedGyms: { take: 1 },
+            merchantProfile: true,
+            subscriptions: {
+              where: { status: 'active' },
+              include: {
+                gymPlan: { select: { id: true, name: true, gym: { select: { id: true, name: true } } } },
+                trainerPlan: { select: { id: true, name: true } },
+                multiGymTier: { select: { id: true, name: true, price: true } } // <-- Include tier details
+              }
             },
-            // Optionally include plan details if needed on the profile screen
-            include: {
-              gymPlan: { select: { id: true, name: true } },
-              trainerPlan: { select: { id: true, name: true } }
-            }
-          },
-      },
-    });
+        },
+      }),
+      // Fetch all available multi-gym tiers that can be purchased
+      prisma.multiGymTier.findMany({
+        where: { chargebeePlanId: { not: null } }, // Only show tiers that are actually set up for payment
+        orderBy: { price: 'asc' }
+      })
+    ]);
 
     if (!user) {
       throw new AppError("User not found.", 404);
     }
     
     console.log(`[UserService] Successfully fetched full profile for User ID: ${userId}`);
+    
     // Exclude password before sending back to client
     const { password, ...userResponse } = user;
-    return userResponse;
+
+    // Add the available tiers to the response object
+    const profileWithTiers = {
+        ...userResponse,
+        availableMultiGymTiers: availableTiers
+    };
+
+    return profileWithTiers;
 
   } catch (error) {
     console.error(`[UserService] FATAL ERROR during profile fetch:`, error);

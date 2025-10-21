@@ -26,7 +26,6 @@ model User {
   chargebeeCustomerId   String?                  @unique
   memberProfile         MemberProfile?
   trainerProfile        TrainerProfile?
-  multiGymProfile       MultiGymMemberProfile?
   merchantProfile       MerchantProfile?
   managedGyms           Gym[]                    @relation("GymManager")
   subscriptions         Subscription[]
@@ -81,12 +80,7 @@ model TrainerProfile {
   gyms             Gym[]                    @relation("GymTrainers")
 }
 
-model MultiGymMemberProfile {
-  id     String @id @default(cuid())
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String @unique
-  tier   String
-}
+
 model MerchantProfile {
   id          String    @id @default(cuid())
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)

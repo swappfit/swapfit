@@ -1,5 +1,4 @@
 // src/validators/adminValidator.js
-
 import Joi from 'joi';
 import AppError from '../utils/AppError.js';
 
@@ -33,6 +32,19 @@ export const updateGymStatusSchema = Joi.object({
 export const updateGymBadgesSchema = Joi.object({
     gymId: cuidSchema.label('Gym ID').required(),
     badges: Joi.array().items(Joi.string()).required(),
+});
+
+// --- NEW: Schemas for Multi-Gym Tier Management by Admin ---
+
+export const createMultiGymTierSchema = Joi.object({
+  name: Joi.string().trim().min(2).max(50).required(),
+  price: Joi.number().positive().required(),
+  chargebeePlanId: Joi.string().trim().optional(),
+});
+
+export const assignGymToTierSchema = Joi.object({
+  gymId: cuidSchema.label('Gym ID').required(), // From params
+  tierName: Joi.string().trim().required(),
 });
 
 
@@ -71,4 +83,3 @@ export const broadcastNotificationSchema = Joi.object({
 
 // Export the middleware as the default export for convenience
 export default validate;
-

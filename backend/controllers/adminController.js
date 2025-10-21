@@ -20,6 +20,7 @@ export const updateGymBadges = catchAsync(async (req, res) => {
     const updatedGym = await adminService.updateGymBadges(gymId, badges);
     res.status(200).json({ success: true, message: 'Gym badges updated.', data: updatedGym });
 });
+
 /**
  * @description Controller to get all stats for the Admin Dashboard.
  */
@@ -40,6 +41,7 @@ export const getUsers = catchAsync(async (req, res) => {
   });
   res.status(200).json({ success: true, data: result });
 });
+
 /**
  * @description Controller for sending a broadcast notification to all users.
  */
@@ -58,4 +60,37 @@ export const sendBroadcastNotification = catchAsync(async (req, res, next) => {
 export const getSchedules = catchAsync(async (req, res) => {
   const items = await adminService.getSchedules();
   res.status(200).json({ success: true, data: items });
+});
+
+
+// --- NEW CONTROLLERS FOR MULTI-GYM TIERS ---
+
+/**
+ * @description Controller to create a new multi-gym tier.
+ */
+export const createMultiGymTier = catchAsync(async (req, res) => {
+    const tier = await adminService.createMultiGymTier(req.body);
+    res.status(201).json({ success: true, message: 'Tier created successfully.', data: tier });
+});
+
+/**
+ * @description Controller to get all available multi-gym tiers.
+ */
+export const getMultiGymTiers = catchAsync(async (req, res) => {
+    const tiers = await adminService.getMultiGymTiers();
+    res.status(200).json({ success: true, data: tiers });
+});
+
+/**
+ * @description Controller to assign a gym to a tier using the badges field.
+ * This reuses the existing updateGymBadges service for simplicity.
+ */
+export const assignGymToTier = catchAsync(async (req, res) => {
+    const { gymId } = req.params;
+    const { tierName } = req.body; // e.g., { tierName: "Silver" }
+    
+    // We reuse the existing service, passing the tierName as the sole badge.
+    const updatedGym = await adminService.updateGymBadges(gymId, [tierName]);
+    
+    res.status(200).json({ success: true, message: `Gym assigned to ${tierName} tier.`, data: updatedGym });
 });

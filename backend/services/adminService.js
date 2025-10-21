@@ -2,6 +2,7 @@
 import { PrismaClient } from '@prisma/client';
 import AppError from '../utils/AppError.js';
 import { sendPushNotification } from './notificationService.js';
+
 const prisma = new PrismaClient();
 
 export const getPendingGyms = async () => {
@@ -39,6 +40,7 @@ export const updateGymBadges = async (gymId, badges) => {
         data: { badges: badges }, // Overwrites the existing array
     });
 };
+
 /**
  * @description Fetches platform-wide statistics for the Admin Dashboard.
  */
@@ -102,7 +104,8 @@ export const getUsers = async ({ page = 1, limit = 20, role }) => {
         createdAt: true,
         memberProfile: true,
         trainerProfile: true,
-        multiGymProfile: true,
+        // ✅ REMOVED: multiGymProfile is no longer a valid relation
+        // multiGymProfile: true, 
       },
     }),
     prisma.user.count({ where }),
@@ -121,6 +124,7 @@ export const getSchedules = async () => {
   });
   return schedules;
 };
+
 /**
  * @description Creates a notification for ALL users and triggers a push notification.
  * This is a powerful, admin-only function for platform-wide announcements.
@@ -167,4 +171,43 @@ export const sendBroadcastNotification = async (notificationData) => {
 
   // 4. Return the count of affected users
   return allUserIds.length;
+};
+
+
+
+/**
+ * @description Creates a new tier definition in the MultiGymTier registry.
+ * The admin is responsible for creating the corresponding plan in Chargebee
+ * and providing the plan ID here.
+ */
+export const createMultiGymTier = async (tierData) => {
+    const { name, price, chargebeePlanId } = tierData;
+    
+    // Basic validation
+    if (!name || price === undefined || !chargebeePlanId) {
+        throw new AppError('Tier name, price, and Chargebee Plan ID are all required.', 400);
+    }
+
+    // Simply create the record in our database.
+    // The link to Chargebee is established via the provided ID.
+    const newTier = await prisma.multiGymTier.create({
+        data: {
+            name,
+            price: parseFloat(price),
+            chargebeePlanId: chargebeePlanId
+        }
+    });
+
+    console.log(`[AdminService] Successfully created tier "${name}" and linked to Chargebee Plan ID: ${chargebeePlanId}`);
+    return newTier;
+};
+
+
+/**
+ * @description Fetches all defined multi-gym tiers.
+ */
+export const getMultiGymTiers = async () => {
+    return await prisma.multiGymTier.findMany({
+        orderBy: { price: 'asc' }
+    });
 };

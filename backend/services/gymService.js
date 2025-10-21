@@ -101,18 +101,53 @@ export const update = async (gymId, ownerId, updateData) => {
   return await prisma.gym.update({ where: { id: gymId }, data: updateData });
 };
 
+// src/services/gymService.js
+
 export const checkIn = async (userId, gymId) => {
-    const activeSubscription = await prisma.subscription.findFirst({
+    // 1. Check if the user is already checked into THIS specific gym.
+    const existingCheckIn = await prisma.checkIn.findFirst({ 
+        where: { userId, gymId, checkOut: null } 
+    });
+    if (existingCheckIn) {
+        throw new AppError('You are already checked in to this gym.', 400);
+    }
+
+    // 2. Check for a valid subscription. It can be EITHER a gym-specific plan OR a multi-gym pass.
+
+    // Check for a gym-specific subscription
+    const gymSubscription = await prisma.subscription.findFirst({
         where: { userId, status: 'active', gymPlan: { gymId } },
     });
-    if (!activeSubscription) throw new AppError('No active subscription found for this gym.', 403);
 
-    const existingCheckIn = await prisma.checkIn.findFirst({ where: { userId, checkOut: null } });
-    if (existingCheckIn) throw new AppError('You are already checked in.', 400);
+    // Check for a multi-gym pass. We need to find the gym's tier first.
+    const gym = await prisma.gym.findUnique({ where: { id: gymId }, select: { badges: true } });
+    
+    let multiGymSubscription = null;
+    if (gym?.badges && gym.badges.length > 0) {
+        // Find if the user has an active subscription for any of the gym's tier names
+        multiGymSubscription = await prisma.subscription.findFirst({
+            where: {
+                userId,
+                status: 'active',
+                multiGymTier: {
+                    name: { in: gym.badges } // Check if the tier name is in the gym's badges array
+                }
+            },
+            include: { multiGymTier: { select: { name: true } } }
+        });
+    }
 
-    return await prisma.checkIn.create({ data: { userId, gymId } });
+    // 3. Grant access if either subscription is valid
+    if (!gymSubscription && !multiGymSubscription) {
+        throw new AppError('No active subscription found for this gym.', 403);
+    }
+
+    // 4. If we reach here, the user is authorized. Create the check-in record.
+    const newCheckIn = await prisma.checkIn.create({ data: { userId, gymId } });
+    
+    console.log(`[GymService] User ${userId} checked into gym ${gymId} with pass: ${gymSubscription ? 'Gym Plan' : multiGymSubscription.multiGymTier.name}`);
+    return newCheckIn;
 };
-
 export const checkOut = async (userId, checkInId) => {
     const checkInRecord = await prisma.checkIn.findFirst({
         where: { id: checkInId, userId, checkOut: null },

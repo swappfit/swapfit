@@ -28,6 +28,8 @@ export const createCheckoutSession = async ({ userId, planId, planType }) => {
             planFromDb = await prisma.gymPlan.findUnique({ where: { id: planId } });
         } else if (planType === 'TRAINER') {
             planFromDb = await prisma.trainerPlan.findUnique({ where: { id: planId } });
+        } else if (planType === 'MULTI_GYM') { 
+            planFromDb = await prisma.multiGymTier.findUnique({ where: { id: planId } });
         } else {
             throw new AppError('Invalid plan type specified.', 400);
         }
@@ -168,10 +170,7 @@ const processMarketplaceOrder = async (invoice) => {
 };
 
 
-// ✅✅✅ THIS IS THE ONLY PART THAT HAS CHANGED ✅✅✅
-// src/services/subscriptionService.js
 
-// ... (keep all your other functions like createCheckoutSession, createPortalSession, and processMarketplaceOrder)
 
 export const processWebhook = async (payload) => {
     const { parsedBody, rawBody, headers } = payload;
@@ -190,7 +189,6 @@ export const processWebhook = async (payload) => {
                 throw new AppError('Webhook signature verification failed.', 403);
             }
         } else {
-            // IMPORTANT: Use parsedBody for direct parsing when there's no secret
             event = parsedBody;
         }
         
@@ -209,7 +207,6 @@ export const processWebhook = async (payload) => {
                 await processMarketplaceOrder(invoice);
                 return { success: true, message: `Successfully processed marketplace order for invoice ${invoice.id}` };
             } else {
-                // This is a subscription payment, we will handle it below.
                 console.log('[Webhook] Received subscription payment, deferring to subscription-specific events for processing.');
                 return { success: true, message: 'Ignored non-marketplace invoice_paid event.' };
             }
@@ -261,13 +258,15 @@ export const processWebhook = async (payload) => {
             throw new AppError('No plan item ID found in subscription.', 400);
         }
 
-        // Find the plan in our database
-        const [gymPlan, trainerPlan] = await Promise.all([
+        // ✅✅✅ THIS IS THE CORRECTED PART ✅✅✅
+        // Find the plan in our database across all possible plan types
+        const [gymPlan, trainerPlan, multiGymTier] = await Promise.all([
             prisma.gymPlan.findFirst({ where: { chargebeePlanId: planItemId } }),
-            prisma.trainerPlan.findFirst({ where: { chargebeePlanId: planItemId } })
+            prisma.trainerPlan.findFirst({ where: { chargebeePlanId: planItemId } }),
+            prisma.multiGymTier.findFirst({ where: { chargebeePlanId: planItemId } }) // <-- ADDED THIS
         ]);
 
-        if (!gymPlan && !trainerPlan) {
+        if (!gymPlan && !trainerPlan && !multiGymTier) { // <-- UPDATED THIS CHECK
             throw new AppError(`Plan not found for Chargebee plan ID ${planItemId}.`, 404);
         }
 
@@ -281,6 +280,7 @@ export const processWebhook = async (payload) => {
                 chargebeeSubscriptionId: subscription.id,
                 gymPlanId: gymPlan?.id || null,
                 trainerPlanId: trainerPlan?.id || null,
+                multiGymTierId: multiGymTier?.id || null, // <-- ADDED THIS
             };
             
             await prisma.subscription.upsert({
@@ -308,7 +308,6 @@ export const processWebhook = async (payload) => {
 
     } catch (error) {
         console.error(`[Webhook] ❌ Error processing webhook:`, error.message);
-        // Re-throw the error so the controller's catchAsync wrapper can send a proper error response.
         throw error;
     }
 };
