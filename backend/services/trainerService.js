@@ -1,3 +1,4 @@
+// src/services/trainerService.js
 
 import { PrismaClient } from '@prisma/client';
 import AppError from '../utils/AppError.js';
@@ -82,6 +83,63 @@ export const getById = async (userId) => {
   });
   if (!profile) throw new AppError('Trainer not found.', 404);
   return profile;
+};
+
+// Add this new service function
+export const getTrainersByPlanIds = async (planIds) => {
+  if (!planIds || planIds.length === 0) {
+    return [];
+  }
+
+  try {
+    // Find all trainer plans with the given IDs
+    const trainerPlans = await prisma.trainerPlan.findMany({
+      where: {
+        id: { in: planIds }
+      },
+      include: {
+        trainer: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                memberProfile: {
+                  select: {
+                    name: true,
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Extract unique trainer profiles from the plans
+    const uniqueTrainers = new Map();
+    trainerPlans.forEach(plan => {
+      const trainerId = plan.trainer.id;
+      if (!uniqueTrainers.has(trainerId)) {
+        uniqueTrainers.set(trainerId, {
+          id: plan.trainer.id,
+          user: plan.trainer.user,
+          bio: plan.trainer.bio,
+          experience: plan.trainer.experience,
+          gallery: plan.trainer.gallery,
+          plans: [plan]
+        });
+      } else {
+        // Add this plan to the existing trainer's plans array
+        uniqueTrainers.get(trainerId).plans.push(plan);
+      }
+    });
+
+    return Array.from(uniqueTrainers.values());
+  } catch (error) {
+    console.error('[Trainer Service] Error fetching trainers by plan IDs:', error);
+    throw new AppError('Failed to fetch trainers.', 500);
+  }
 };
 
 // --- Trainer-Specific Services ---

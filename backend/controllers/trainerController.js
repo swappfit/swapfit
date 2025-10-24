@@ -1,7 +1,6 @@
 // src/controllers/trainerController.js
 
 import * as trainerService from '../services/trainerService.js';
-
 import catchAsync from '../utils/catchAsync.js';
 
 // --- Public Controllers ---
@@ -15,6 +14,12 @@ export const getTrainerById = catchAsync(async (req, res) => {
   res.status(200).json({ success: true, data: profile });
 });
 
+// Add this new controller
+export const getTrainersByPlanIds = catchAsync(async (req, res) => {
+  const { planIds } = req.body;
+  const trainers = await trainerService.getTrainersByPlanIds(planIds);
+  res.status(200).json({ success: true, data: trainers });
+});
 
 // --- Trainer-Specific Controllers ---
 export const updateTrainerProfile = catchAsync(async (req, res) => {
@@ -37,10 +42,10 @@ export const createTrainingPlan = catchAsync(async (req, res) => {
   res.status(201).json({ success: true, message: 'Training plan created.', data: newPlan });
 });
 
-export const getMyTrainingPlans = catchAsync(async (req, res) => {
+export const getMyTrainingPlans = async (req, res) => {
     const plans = await trainerService.getMyTrainingPlans(req.user.id);
     res.status(200).json({ success: true, data: plans });
-});
+};
 
 export const updateTrainingPlan = catchAsync(async (req, res) => {
     const { planId } = req.params;

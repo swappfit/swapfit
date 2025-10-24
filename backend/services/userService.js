@@ -13,12 +13,10 @@ export const changeUserPassword = async (userId, currentPassword, newPassword) =
   if (!user || !user.password) {
     throw new AppError('Password change is not available for this account.', 403);
   }
-
   const isMatch = await bcrypt.compare(currentPassword, user.password);
   if (!isMatch) {
     throw new AppError('The current password you entered is incorrect.', 401);
   }
-
   const hashedPassword = await bcrypt.hash(newPassword, 10);
   await prisma.user.update({
     where: { id: userId },
@@ -31,7 +29,6 @@ export const changeUserPassword = async (userId, currentPassword, newPassword) =
  */
 export const updateUserProfile = async (user, updateData) => {
   const { id: userId, role } = user;
-
   switch (role) {
     case 'MEMBER':
       return await prisma.memberProfile.update({ where: { userId }, data: updateData });
@@ -54,10 +51,7 @@ export const updateUserProfile = async (user, updateData) => {
  */
 export const getUserProfile = async (userId) => {
   console.log(`[UserService] Attempting to fetch full profile for User ID: ${userId}`);
-  if (!userId) {
-    throw new AppError("User not identified.", 401);
-  }
-
+  if (!userId) throw new AppError("User not identified.", 401);
   try {
     // Use a transaction to fetch user data and available tiers in parallel
     const [user, availableTiers] = await prisma.$transaction([
@@ -106,4 +100,56 @@ export const getUserProfile = async (userId) => {
     console.error(`[UserService] FATAL ERROR during profile fetch:`, error);
     throw new AppError('Failed to retrieve user profile due to a server error.', 500);
   }
+};
+
+/**
+ * @description Fetches all of the user's check-ins (active and completed), including gym details.
+ */
+export const getUserCheckIns = async (userId) => {
+  try {
+    console.log(`[UserService] Fetching ALL check-ins for user ${userId}`);
+    
+    // ✅ CHANGE: Removed the date filter to fetch all check-ins
+    const checkIns = await prisma.checkIn.findMany({
+      where: {
+        userId, // Only filter by user ID
+      },
+      include: {
+        gym: {
+          select: {
+            id: true,
+            name: true,
+            address: true
+          }
+        }
+      },
+      orderBy: {
+        checkIn: 'desc' // Order by most recent check-in first
+      }
+    });
+
+    // ✅ IMPORTANT: Ensure dates are properly serialized as ISO strings
+    const serializedCheckIns = checkIns.map(checkIn => ({
+      ...checkIn,
+      checkIn: checkIn.checkIn.toISOString(),
+      checkOut: checkIn.checkOut ? checkIn.checkOut.toISOString() : null
+    }));
+
+    console.log(`[UserService] Found a total of ${serializedCheckIns.length} check-ins for user ${userId}.`);
+    serializedCheckIns.forEach(checkIn => {
+        console.log(`[UserService] - CheckIn ID: ${checkIn.id}, Gym: ${checkIn.gym.name}, CheckIn: ${checkIn.checkIn}, CheckOut: ${checkIn.checkOut || 'Still active'}`);
+    });
+
+    return serializedCheckIns;
+  } catch (error) {
+    console.error(`[UserService] Error fetching user check-ins:`, error);
+    throw new AppError('Failed to retrieve check-ins due to a server error.', 500);
+  }
+};
+
+/**
+ * @description Placeholder for fetching user statistics.
+ */
+export const getUserStats = async (userId) => {
+    return { totalCheckIns: 0, favoriteGym: null, monthlyWorkouts: 0 };
 };

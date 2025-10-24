@@ -1,15 +1,22 @@
-// Routes/auth0UserRoutes.js
+// src/routes/userRoutes.js
 import express from 'express';
 import * as userController from '../controllers/userController.js';
-import { auth0Middleware } from '../middlewares/auth0Middleware.js';
+import authGatekeeper from '../middlewares/authGatekeeper.js'; // Changed from jwtAuth to authGatekeeper
 
 const router = express.Router();
 
-// Auth0 protected user routes
-router.get('/profile', auth0Middleware, userController.getUserProfile);
-router.get('/stats', auth0Middleware, userController.getUserStats);
-router.put('/profile', auth0Middleware, userController.updateUserProfile);
+// All user routes require authentication
+router.use(authGatekeeper); // Changed from jwtAuth to authGatekeeper
+
+// Profile routes
+router.get('/profile', userController.getMyProfile);
+router.put('/profile', userController.updateMyProfile);
+router.post('/change-password', userController.changePassword);
+
+// Check-ins route
+router.get('/check-ins', userController.getUserCheckIns);
+
+// Stats route
+router.get('/stats', userController.getUserStats);
 
 export default router;
-
-

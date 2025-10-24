@@ -1,8 +1,12 @@
-import { PrismaClient } from '@prisma/client';
-import AppError from '../utils/AppError.js';
-import chargebeeModule from 'chargebee-typescript'; // ✅ NEW: Import Chargebee
+// src/services/cartService.js
 
-// ✅ NEW: Initialize Chargebee with your environment variables
+import { PrismaClient } from '@prisma/client';
+import chargebeeModule from 'chargebee-typescript';
+import AppError from '../utils/AppError.js';
+
+const prisma = new PrismaClient();
+
+// Initialize Chargebee with your environment variables
 const { ChargeBee } = chargebeeModule;
 const chargebee = new ChargeBee();
 chargebee.configure({
@@ -11,14 +15,11 @@ chargebee.configure({
   api_version: 'v2',
 });
 
-const prisma = new PrismaClient();
-
 // Helper function to ensure user exists in database
 const ensureUserExists = async (userId, userEmail) => {
   console.log(`[BACKEND] [CartService] Ensuring user exists: ${userId}`);
   
   try {
-    // ... (your existing ensureUserExists logic remains the same)
     let user = await prisma.user.findUnique({ where: { id: userId } });
     if (user) {
       console.log(`[BACKEND] [CartService] User found by full ID`);
@@ -49,7 +50,6 @@ const ensureUserExists = async (userId, userEmail) => {
     console.log(`[BACKEND] [CartService] User created successfully:`, user);
     return user;
   } catch (error) {
-    // ... (your existing error handling logic remains the same)
     console.error(`[BACKEND] [CartService] Error ensuring user exists:`, error);
     if (error.code === 'P2002') throw new AppError('User already exists with this ID', 409);
     else if (error.code === 'P2003') throw new AppError('Invalid user data provided', 400);
@@ -126,6 +126,151 @@ export const removeItemFromCart = async (userId, cartItemId, userEmail) => {
   console.log(`[BACKEND] [CartService] Cart item deleted successfully`);
 };
 
+// Helper function to get or create a default item family
+const getOrCreateDefaultItemFamily = async () => {
+  console.log(`[BACKEND] [CartService] Getting or creating default item family`);
+  
+  try {
+    // Use the item family ID from environment variables if available
+    if (process.env.CHARGEBEE_ITEM_FAMILY_ID) {
+      console.log(`[BACKEND] [CartService] Using item family from environment: ${process.env.CHARGEBEE_ITEM_FAMILY_ID}`);
+      return process.env.CHARGEBEE_ITEM_FAMILY_ID;
+    }
+    
+    // Try to find an existing item family
+    const itemFamilies = await chargebee.item_family.list({
+      limit: 1,
+      "sort_by[desc]": "created_at"
+    }).request();
+    
+    if (itemFamilies.list.length > 0) {
+      console.log(`[BACKEND] [CartService] Found existing item family: ${itemFamilies.list[0].item_family.id}`);
+      return itemFamilies.list[0].item_family.id;
+    }
+    
+    // Create a new item family if none exists
+    const itemFamilyResult = await chargebee.item_family.create({
+      name: 'Marketplace Products',
+      description: 'Default item family for marketplace products'
+    }).request();
+    
+    const itemFamilyId = itemFamilyResult.item_family.id;
+    console.log(`[BACKEND] [CartService] Created new item family: ${itemFamilyId}`);
+    return itemFamilyId;
+  } catch (error) {
+    console.error(`[BACKEND] [CartService] Failed to get or create item family:`, error);
+    throw new AppError('Failed to set up product catalog. Please try again.', 500);
+  }
+};
+
+// Helper function to create or get Chargebee product
+const createOrGetChargebeeProduct = async (product) => {
+  console.log(`[BACKEND] [CartService] Creating or getting Chargebee product for: ${product.id}`);
+  
+  // Check if product already has a Chargebee item price ID
+  if (product.chargebeeItemPriceId) {
+    console.log(`[BACKEND] [CartService] Product already has Chargebee item price ID: ${product.chargebeeItemPriceId}`);
+    return product.chargebeeItemPriceId;
+  }
+  
+  try {
+    // Get or create a default item family
+    const itemFamilyId = await getOrCreateDefaultItemFamily();
+    
+    // Generate a unique ID for the Chargebee item
+    const chargebeeItemId = `product-${product.id}`;
+    
+    let itemResult;
+    
+    // First, try to retrieve the item to see if it already exists
+    try {
+      console.log(`[BACKEND] [CartService] Checking if item already exists: ${chargebeeItemId}`);
+      const retrieveResult = await chargebee.item.retrieve(chargebeeItemId).request();
+      itemResult = retrieveResult;
+      console.log(`[BACKEND] [CartService] Retrieved existing Chargebee item: ${itemResult.item.id}`);
+    } catch (retrieveError) {
+      // If the item doesn't exist, create it
+      console.log(`[BACKEND] [CartService] Item doesn't exist, creating new one: ${chargebeeItemId}`);
+      
+      try {
+        itemResult = await chargebee.item.create({
+          id: chargebeeItemId,
+          name: product.name,
+          description: product.description || '',
+          type: 'charge', // Fixed: Changed from 'product' to 'charge' for one-time purchases
+          status: 'active',
+          item_family_id: itemFamilyId,
+        }).request();
+        
+        console.log(`[BACKEND] [CartService] Created Chargebee item: ${itemResult.item.id}`);
+      } catch (createError) {
+        console.error(`[BACKEND] [CartService] Failed to create item:`, createError);
+        throw new AppError('Failed to create product in payment system. Please try again.', 500);
+      }
+    }
+    
+    // Generate a unique ID for the Chargebee item price
+    const chargebeeItemPriceId = `price-${product.id}`;
+    
+    let itemPriceResult;
+    
+    // First, try to retrieve the item price to see if it already exists
+    try {
+      console.log(`[BACKEND] [CartService] Checking if item price already exists: ${chargebeeItemPriceId}`);
+      
+      // List all item prices for this item to find the one we're looking for
+      const listResult = await chargebee.item_price.list({
+        item_id: itemResult.item.id,
+        limit: 100
+      }).request();
+      
+      // Find the item price with our ID
+      const existingPrice = listResult.list.find(price => price.item_price.id === chargebeeItemPriceId);
+      
+      if (existingPrice) {
+        itemPriceResult = { item_price: existingPrice.item_price };
+        console.log(`[BACKEND] [CartService] Retrieved existing Chargebee item price: ${itemPriceResult.item_price.id}`);
+      } else {
+        throw new Error('Item price not found');
+      }
+    } catch (retrievePriceError) {
+      // If the item price doesn't exist, create it
+      console.log(`[BACKEND] [CartService] Item price doesn't exist, creating new one: ${chargebeeItemPriceId}`);
+      
+      try {
+        itemPriceResult = await chargebee.item_price.create({
+          id: chargebeeItemPriceId, // Added: Unique ID for the item price
+          item_id: itemResult.item.id,
+          name: `${product.name} - Price`,
+          price: Math.round(product.price * 100), // Convert to cents
+          pricing_model: 'per_unit',
+          status: 'active',
+        }).request();
+        
+        console.log(`[BACKEND] [CartService] Created Chargebee item price: ${itemPriceResult.item_price.id}`);
+      } catch (createPriceError) {
+        console.error(`[BACKEND] [CartService] Failed to create item price:`, createPriceError);
+        throw new AppError('Failed to create product price in payment system. Please try again.', 500);
+      }
+    }
+    
+    // Update our product with the Chargebee IDs
+    // Fixed: Using the correct field names from your schema
+    await prisma.product.update({
+      where: { id: product.id },
+      data: {
+        chargebeeItemId: itemResult.item.id,
+        chargebeeItemPriceId: itemPriceResult.item_price.id,
+      },
+    });
+    
+    console.log(`[BACKEND] [CartService] Updated product with Chargebee IDs`);
+    return itemPriceResult.item_price.id;
+  } catch (error) {
+    console.error(`[BACKEND] [CartService] Failed to create Chargebee product:`, error);
+    throw new AppError('Failed to create product in payment system. Please try again.', 500);
+  }
+};
 
 // ✅ ✅ ✅ PART 1: NEW FULLY IMPLEMENTED FUNCTION ✅ ✅ ✅
 
@@ -150,70 +295,50 @@ export const createCartCheckout = async (userId, userEmail) => {
     throw new AppError('Your cart is empty.', 400);
   }
 
-  // --- Chargebee Customer Logic ---
-  let chargebeeCustomerId = user.chargebeeCustomerId;
-  if (!chargebeeCustomerId) {
-    console.log(`[BACKEND] [CartService] No Chargebee customer found for user ${user.id}. Creating one...`);
-    try {
-      const customerResult = await chargebee.customer.create({
-        email: user.email,
-        first_name: user.memberProfile?.name || user.email.split('@')[0],
-      }).request();
-      chargebeeCustomerId = customerResult.customer.id;
-      
-      // Save the new Chargebee ID back to our user record
-      await prisma.user.update({
-        where: { id: userId },
-        data: { chargebeeCustomerId: chargebeeCustomerId },
-      });
-      console.log(`[BACKEND] [CartService] Created and saved Chargebee customer: ${chargebeeCustomerId}`);
-    } catch (error) {
-      console.error(`[BACKEND] [CartService] Failed to create Chargebee customer:`, error);
-      throw new AppError('Could not create a billing profile. Please try again.', 500);
-    }
+  // --- Prepare Line Items for Chargebee (Product Catalog 2.0) ---
+  const subscriptionItems = [];
+  
+  for (const item of cartItems) {
+    // Create or get the Chargebee product for this item
+    const chargebeeItemPriceId = await createOrGetChargebeeProduct(item.product);
+    
+    subscriptionItems.push({
+      item_price_id: chargebeeItemPriceId,
+      quantity: item.quantity,
+      // ✅ CRITICAL: Add metadata for payouts and order tracking
+      metadata: {
+        internal_product_id: item.product.id,
+        internal_merchant_id: item.product.seller.id,
+        internal_cart_item_id: item.id, // To delete cart items after payment
+      }
+    });
   }
 
-  // --- Prepare Line Items for Chargebee Invoice ---
-  const invoiceLineItems = cartItems.map(item => ({
-    item_type: "charge",
-    description: item.product.name,
-    amount: Math.round(item.product.price * 100), // Amount in cents
-    quantity: item.quantity,
-    // ✅ CRITICAL: Add metadata for payouts and order tracking
-    metadata: {
-      internal_product_id: item.product.id,
-      internal_merchant_id: item.product.seller.id,
-      internal_cart_item_id: item.id, // To delete cart items after payment
-    }
-  }));
-
-  // --- Create Ad-Hoc Invoice in Chargebee ---
-  console.log(`[BACKEND] [CartService] Creating ad-hoc invoice for customer ${chargebeeCustomerId}`);
-  let invoiceResult;
-  try {
-    invoiceResult = await chargebee.invoice.create({
-      customer_id: chargebeeCustomerId,
-      line_items: invoiceLineItems,
-    }).request();
-  } catch (error) {
-    console.error(`[BACKEND] [CartService] Failed to create Chargebee invoice:`, error);
-    throw new AppError('Failed to generate invoice. Please try again.', 500);
-  }
-
-  // --- Create Hosted Checkout Page ---
-  console.log(`[BACKEND] [CartService] Creating hosted checkout page for invoice ${invoiceResult.invoice.id}`);
+  // --- Create Hosted Checkout Page (Product Catalog 2.0) ---
+  console.log(`[BACKEND] [CartService] Creating hosted checkout page for user: ${user.id}`);
+  console.log(`[BACKEND] [CartService] Subscription items:`, JSON.stringify(subscriptionItems, null, 2));
+  
+  // Use the FRONTEND_URL from environment variables
+  const appUrl = process.env.FRONTEND_URL || 'https://dev-1de0bowjvfbbcx7q.us.auth0.com/';
+  console.log(`[BACKEND] [CartService] App URL: ${appUrl}`);
+  
   let checkoutPageResult;
   try {
-    checkoutPageResult = await chargebee.checkout_page.create_for_invoice({
-      invoice: { id: invoiceResult.invoice.id }
+    // ✅ FIXED: Remove the customer parameter and let Chargebee create a new customer automatically
+    checkoutPageResult = await chargebee.hosted_page.checkout_new_for_items({
+      subscription_items: subscriptionItems,
+      redirect_url: `${appUrl}/store?checkout=success`,
+      cancel_url: `${appUrl}/store`,
+      // Don't pass customer parameter - let Chargebee create a new customer
     }).request();
+    
+    console.log(`[BACKEND] [CartService] Checkout created successfully. URL: ${checkoutPageResult.hosted_page.url}`);
+    
+    // Return the hosted page URL to the frontend
+    return { checkoutUrl: checkoutPageResult.hosted_page.url };
   } catch (error) {
     console.error(`[BACKEND] [CartService] Failed to create Chargebee checkout page:`, error);
+    console.error(`[BACKEND] [CartService] Error details:`, JSON.stringify(error, null, 2));
     throw new AppError('Failed to create payment page. Please try again.', 500);
   }
-  
-  console.log(`[BACKEND] [CartService] Checkout created successfully. URL: ${checkoutPageResult.checkout_page.url}`);
-  
-  // Return the hosted page URL to the frontend
-  return { checkoutUrl: checkoutPageResult.checkout_page.url };
 };

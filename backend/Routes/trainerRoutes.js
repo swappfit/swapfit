@@ -1,8 +1,8 @@
-// Routes/trainerRoutes.js
+// src/routes/trainerRoutes.js
 
 import express from 'express';
 import * as trainerController from '../controllers/trainerController.js';
-import jwtAuth from '../middlewares/jwtAuth.js';
+import authGatekeeper from '../middlewares/authGatekeeper.js'; // Changed from jwtAuth to authGatekeeper
 import roleAuth from '../middlewares/roleAuth.js';
 
 import validate, {
@@ -24,17 +24,15 @@ const router = express.Router();
 router.get('/browse', validate(browseTrainersSchema), trainerController.getAllTrainers);
 router.get('/profile/:id', validate(trainerIdParamSchema), trainerController.getTrainerById);
 
-
 //================================================================
-// APPLY JWT AUTHENTICATION FOR ALL SUBSEQUENT ROUTES
+// APPLY AUTHENTICATION FOR ALL SUBSEQUENT ROUTES
 //================================================================
-router.use(jwtAuth);
-
+router.use(authGatekeeper); // Changed from jwtAuth to authGatekeeper
 
 //================================================================
 // 2. TRAINER-ONLY ROUTES (Requires 'TRAINER' role)
 //================================================================
-// All routes in this section are automatically protected by jwtAuth and roleAuth('TRAINER')
+// All routes in this section are automatically protected by authGatekeeper and roleAuth('TRAINER')
 router.put('/profile/me', validate(updateProfileSchema), roleAuth('TRAINER'), trainerController.updateTrainerProfile);
 router.get('/dashboard', roleAuth('TRAINER'), trainerController.getTrainerDashboard);
 router.get('/subscribers', roleAuth('TRAINER'), trainerController.getSubscribedMembers);
@@ -53,6 +51,10 @@ planRouter.post('/assign', validate(assignPlanSchema), trainerController.assignP
 
 router.use('/training-plans', planRouter);
 
+//================================================================
+// 3. ADDITIONAL ROUTES
+//================================================================
+// Add the missing route for getting trainers by plan IDs
+router.post('/by-plan-ids', trainerController.getTrainersByPlanIds);
 
 export default router;
-
