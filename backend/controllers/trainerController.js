@@ -17,7 +17,9 @@ export const getTrainerById = catchAsync(async (req, res) => {
 // Add this new controller
 export const getTrainersByPlanIds = catchAsync(async (req, res) => {
   const { planIds } = req.body;
+  console.log('[Trainer Controller] Received plan IDs:', planIds);
   const trainers = await trainerService.getTrainersByPlanIds(planIds);
+  console.log('[Trainer Controller] Returning trainers:', trainers.length);
   res.status(200).json({ success: true, data: trainers });
 });
 

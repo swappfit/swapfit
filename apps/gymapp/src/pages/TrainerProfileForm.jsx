@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import * as authService from '../api/authService';
 import parseApiError from '../utils/parseApiError';
 import { useAuth } from '../context/AuthContext';
+import { uploadMultipleImages } from '../utils/cloudinary';
 
 export default function TrainerProfileForm() {
   const [formData, setFormData] = useState({
@@ -18,6 +19,7 @@ export default function TrainerProfileForm() {
   const [photoPreviews, setPhotoPreviews] = useState([]);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [uploadingImages, setUploadingImages] = useState(false);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -33,6 +35,17 @@ export default function TrainerProfileForm() {
     setFormData((prev) => ({ ...prev, gallery: [...prev.gallery, ...files] }));
     const previews = files.map(file => URL.createObjectURL(file));
     setPhotoPreviews(prev => [...prev, ...previews]);
+  };
+
+  const removePhoto = (index) => {
+    const newGallery = [...formData.gallery];
+    const newPreviews = [...photoPreviews];
+    
+    newGallery.splice(index, 1);
+    newPreviews.splice(index, 1);
+    
+    setFormData(prev => ({ ...prev, gallery: newGallery }));
+    setPhotoPreviews(newPreviews);
   };
 
   const addPlan = () => {
@@ -82,10 +95,29 @@ export default function TrainerProfileForm() {
     if (validate()) {
       setLoading(true);
       try {
+        // First upload images to Cloudinary
+        setUploadingImages(true);
+        let uploadedGallery = [];
+        
+        if (formData.gallery.length > 0) {
+          try {
+            uploadedGallery = await uploadMultipleImages(formData.gallery);
+            console.log('Images uploaded successfully:', uploadedGallery);
+          } catch (uploadError) {
+            console.error('Image upload failed:', uploadError);
+            setErrors({ submit: 'Failed to upload images. Please try again.' });
+            setLoading(false);
+            setUploadingImages(false);
+            return;
+          }
+        }
+        
+        setUploadingImages(false);
+
         const apiPayload = {
           bio: formData.bio,
           experience: parseInt(formData.experience, 10),
-          gallery: formData.gallery.map(file => `https://placehold.co/600x400?text=${encodeURIComponent(file.name)}`),
+          gallery: uploadedGallery, // Use the uploaded image URLs
           plans: formData.plans
             .filter(p => p.name && p.price && parseFloat(p.price) > 0)
             .map(p => ({ ...p, price: parseFloat(p.price) }))
@@ -105,6 +137,7 @@ export default function TrainerProfileForm() {
         console.error("Profile creation failed:", err);
       } finally {
         setLoading(false);
+        setUploadingImages(false);
       }
     }
   };
@@ -139,7 +172,18 @@ export default function TrainerProfileForm() {
             {errors.gallery && <p className="text-red-400 text-xs mt-1">{errors.gallery}</p>}
             {photoPreviews.length > 0 && (
               <div className="mt-4 grid grid-cols-3 sm:grid-cols-5 gap-3">
-                {photoPreviews.map((src, i) => <img key={i} src={src} alt={`Gallery preview ${i+1}`} className="w-full h-24 object-cover rounded-lg"/>)}
+                {photoPreviews.map((src, i) => (
+                  <div key={i} className="relative">
+                    <img src={src} alt={`Gallery preview ${i+1}`} className="w-full h-24 object-cover rounded-lg"/>
+                    <button 
+                      type="button" 
+                      onClick={() => removePhoto(i)}
+                      className="absolute top-0 right-0 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -179,8 +223,8 @@ export default function TrainerProfileForm() {
           </div>
 
           <div className="pt-5 border-t border-gray-700">
-            <button type="submit" disabled={loading} className="w-full bg-teal-500 hover:bg-teal-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg">
-              {loading ? 'Saving Profile...' : 'Publish Trainer Profile'}
+            <button type="submit" disabled={loading || uploadingImages} className="w-full bg-teal-500 hover:bg-teal-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg">
+              {loading ? 'Saving Profile...' : uploadingImages ? 'Uploading Images...' : 'Publish Trainer Profile'}
             </button>
           </div>
         </form>

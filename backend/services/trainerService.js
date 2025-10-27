@@ -85,13 +85,15 @@ export const getById = async (userId) => {
   return profile;
 };
 
-// Add this new service function
+// Fixed version of getTrainersByPlanIds
 export const getTrainersByPlanIds = async (planIds) => {
   if (!planIds || planIds.length === 0) {
     return [];
   }
 
   try {
+    console.log('[Trainer Service] Fetching trainers by plan IDs:', planIds);
+    
     // Find all trainer plans with the given IDs
     const trainerPlans = await prisma.trainerPlan.findMany({
       where: {
@@ -116,6 +118,8 @@ export const getTrainersByPlanIds = async (planIds) => {
       }
     });
 
+    console.log('[Trainer Service] Found trainer plans:', trainerPlans.length);
+
     // Extract unique trainer profiles from the plans
     const uniqueTrainers = new Map();
     trainerPlans.forEach(plan => {
@@ -135,7 +139,9 @@ export const getTrainersByPlanIds = async (planIds) => {
       }
     });
 
-    return Array.from(uniqueTrainers.values());
+    const result = Array.from(uniqueTrainers.values());
+    console.log('[Trainer Service] Returning unique trainers:', result.length);
+    return result;
   } catch (error) {
     console.error('[Trainer Service] Error fetching trainers by plan IDs:', error);
     throw new AppError('Failed to fetch trainers.', 500);

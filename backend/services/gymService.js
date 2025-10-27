@@ -66,7 +66,6 @@ export const update = async (gymId, ownerId, updateData) => {
 // src/services/gymService.js
 
 export const checkIn = async (userId, gymId) => {
-<<<<<<< HEAD
     // 1. Check if the user is already checked into THIS specific gym.
     const existingCheckIn = await prisma.checkIn.findFirst({ 
         where: { userId, gymId, checkOut: null } 
@@ -110,55 +109,6 @@ export const checkIn = async (userId, gymId) => {
     
     console.log(`[GymService] User ${userId} checked into gym ${gymId} with pass: ${gymSubscription ? 'Gym Plan' : multiGymSubscription.multiGymTier.name}`);
     return newCheckIn;
-=======
-    console.log(`[GymService] Starting check-in process for user ${userId} at gym ${gymId}`);
-    try {
-        // Check if user has an active subscription for this gym
-        const activeSubscription = await prisma.subscription.findFirst({
-            where: { 
-                userId, 
-                status: 'active',
-                gymPlan: { gymId }
-            },
-        });
-        
-        if (!activeSubscription) {
-            console.log(`[GymService] Check-in failed: No active subscription for user ${userId} at gym ${gymId}`);
-            throw new AppError('No active subscription found for this gym.', 403);
-        }
-
-        // Check if user is already checked in somewhere
-        const existingCheckIn = await prisma.checkIn.findFirst({ 
-            where: { 
-                userId, 
-                checkOut: null 
-            } 
-        });
-        
-        if (existingCheckIn) {
-            console.log(`[GymService] Check-in failed: User ${userId} is already checked in.`);
-            throw new AppError('You are already checked in.', 400);
-        }
-
-        // Create new check-in record with explicit timestamp
-        const now = new Date();
-        console.log(`[GymService] Creating check-in record at ${now.toISOString()}`);
-        
-        const newCheckIn = await prisma.checkIn.create({ 
-            data: { 
-                userId, 
-                gymId,
-                checkIn: now // ✅ FIX: Explicitly set the check-in time
-            } 
-        });
-        
-        console.log(`[GymService] Check-in successful. Record ID: ${newCheckIn.id}, Time: ${newCheckIn.checkIn}`);
-        return newCheckIn;
-    } catch (error) {
-        console.error(`[GymService] Error during check-in for user ${userId}:`, error);
-        throw error; // Re-throw the error to be handled by the controller
-    }
->>>>>>> 3f4ceb8 (cartcheckoutpending)
 };
 export const checkOut = async (userId, checkInId) => {
     console.log(`[GymService] Starting check-out process for user ${userId}, check-in ID ${checkInId}`);
