@@ -1,4 +1,3 @@
-// src/controllers/cartController.js
 import * as cartService from '../services/cartService.js';
 import catchAsync from '../utils/catchAsync.js';
 
@@ -93,21 +92,18 @@ export const removeFromCart = catchAsync(async (req, res) => {
   res.status(204).send();
 });
 
-// FIXED CHECKOUT CONTROLLER
 export const createCheckout = catchAsync(async (req, res) => {
   const userId = getUserId(req);
   const userEmail = getUserEmail(req);
   console.log('[BACKEND] Creating checkout for user:', userId);
   
   try {
-    const result = await cartService.createCartCheckout(userId, userEmail);
-    console.log('[BACKEND] Checkout created:', result);
+    const checkoutUrl = await cartService.createCartCheckout(userId, userEmail);
+    console.log('[BACKEND] Checkout created:', checkoutUrl);
     
-    // Ensure the response has the correct structure for the frontend
     res.status(200).json({ 
       success: true, 
-      message: 'Checkout created successfully',
-      data: result 
+      data: { checkoutUrl }
     });
   } catch (error) {
     console.error('[BACKEND] Error creating checkout:', error);

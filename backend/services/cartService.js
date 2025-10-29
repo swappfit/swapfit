@@ -1,5 +1,3 @@
-// src/services/cartService.js
-
 import { PrismaClient } from '@prisma/client';
 import chargebeeModule from 'chargebee-typescript';
 import AppError from '../utils/AppError.js';
@@ -12,7 +10,7 @@ const chargebee = new ChargeBee();
 chargebee.configure({
   site: process.env.CHARGEBEE_SITE,
   api_key: process.env.CHARGEBEE_API_KEY,
-  api_version: 'v2',
+  api_version: 'v2', // Make sure you're using v2 for Product Catalog 2.0
 });
 
 // Helper function to ensure user exists in database
@@ -25,6 +23,8 @@ const ensureUserExists = async (userId, userEmail) => {
       console.log(`[BACKEND] [CartService] User found by full ID`);
       return user;
     }
+    
+    // Try alternative ID format (for Auth0 users)
     const idParts = userId.split('|');
     if (idParts.length > 1) {
       const altUserId = idParts[1];
@@ -32,19 +32,33 @@ const ensureUserExists = async (userId, userEmail) => {
       user = await prisma.user.findUnique({ where: { id: altUserId } });
       if (user) {
         console.log(`[BACKEND] [CartService] User found by alternative ID, updating to full ID`);
-        user = await prisma.user.update({ where: { id: altUserId }, data: { id: userId } });
+        user = await prisma.user.update({ 
+          where: { id: altUserId }, 
+          data: { id: userId } 
+        });
         return user;
       }
     }
+    
+    // Create new user if not found
     console.log(`[BACKEND] [CartService] Creating new user with ID: ${userId}`);
     let provider = 'local';
     let auth0Id = null;
+    
     if (userId.includes('|')) {
       provider = userId.split('|')[0];
       auth0Id = userId.split('|')[1];
     }
-    const userData = { id: userId, email: userEmail || `user-${userId}@example.com`, provider: provider, role: 'USER' };
+    
+    const userData = { 
+      id: userId, 
+      email: userEmail || `user-${userId}@example.com`, 
+      provider: provider, 
+      role: 'USER' 
+    };
+    
     if (auth0Id) userData.auth0_id = auth0Id;
+    
     console.log(`[BACKEND] [CartService] Creating user with data:`, userData);
     user = await prisma.user.create({ data: userData });
     console.log(`[BACKEND] [CartService] User created successfully:`, user);
@@ -59,76 +73,9 @@ const ensureUserExists = async (userId, userEmail) => {
   }
 };
 
-// --- ORIGINAL FUNCTIONS (UNCHANGED) ---
-
-export const addItemToCart = async (userId, { productId, quantity }, userEmail) => {
-  console.log(`[BACKEND] [CartService] Adding item to cart:`, { userId, productId, quantity });
-  await ensureUserExists(userId, userEmail);
-  const product = await prisma.product.findUnique({ where: { id: productId } });
-  console.log(`[BACKEND] [CartService] Found product:`, product);
-  if (!product) {
-    console.error(`[BACKEND] [CartService] Product not found: ${productId}`);
-    throw new AppError('Product not found.', 404);
-  }
-  if (product.stock < 1) {
-    console.error(`[BACKEND] [CartService] Product out of stock: ${productId}`);
-    throw new AppError('Product is out of stock.', 400);
-  }
-  try {
-    const existingCartItem = await prisma.cartItem.findUnique({ where: { userId_productId: { userId, productId } } });
-    console.log(`[BACKEND] [CartService] Existing cart item:`, existingCartItem);
-    let cartItem;
-    if (existingCartItem) {
-      console.log(`[BACKEND] [CartService] Updating existing cart item`);
-      cartItem = await prisma.cartItem.update({ where: { id: existingCartItem.id }, data: { quantity: existingCartItem.quantity + quantity }, include: { product: true } });
-    } else {
-      console.log(`[BACKEND] [CartService] Creating new cart item`);
-      cartItem = await prisma.cartItem.create({ data: { userId, productId, quantity }, include: { product: true } });
-    }
-    console.log(`[BACKEND] [CartService] Cart item operation successful:`, cartItem);
-    return cartItem;
-  } catch (error) {
-    console.error(`[BACKEND] [CartService] Database error:`, error);
-    throw new AppError(`Database error: ${error.message}`, 500);
-  }
-};
-
-export const getUserCart = async (userId, userEmail) => {
-  console.log(`[BACKEND] [CartService] Fetching cart for userId: ${userId}`);
-  await ensureUserExists(userId, userEmail);
-  const cartItems = await prisma.cartItem.findMany({ where: { userId }, include: { product: true }, orderBy: { addedAt: 'asc' } });
-  console.log(`[BACKEND] [CartService] Found ${cartItems.length} items for this user.`);
-  return cartItems;
-};
-
-export const updateCartItemQuantity = async (userId, cartItemId, quantity, userEmail) => {
-  console.log(`[BACKEND] [CartService] Updating cart item quantity:`, { userId, cartItemId, quantity });
-  await ensureUserExists(userId, userEmail);
-  const cartItem = await prisma.cartItem.findFirst({ where: { id: cartItemId, userId } });
-  if (!cartItem) {
-    console.error(`[BACKEND] [CartService] Cart item not found: ${cartItemId}`);
-    throw new AppError('Cart item not found.', 404);
-  }
-  const updatedItem = await prisma.cartItem.update({ where: { id: cartItemId }, data: { quantity }, include: { product: true } });
-  console.log(`[BACKEND] [CartService] Updated cart item:`, updatedItem);
-  return updatedItem;
-};
-
-export const removeItemFromCart = async (userId, cartItemId, userEmail) => {
-  console.log(`[BACKEND] [CartService] Removing cart item:`, { userId, cartItemId });
-  await ensureUserExists(userId, userEmail);
-  const cartItem = await prisma.cartItem.findFirst({ where: { id: cartItemId, userId } });
-  if (!cartItem) {
-    console.error(`[BACKEND] [CartService] Cart item not found: ${cartItemId}`);
-    throw new AppError('Cart item not found.', 404);
-  }
-  await prisma.cartItem.delete({ where: { id: cartItemId } });
-  console.log(`[BACKEND] [CartService] Cart item deleted successfully`);
-};
-
-// Helper function to get or create a default item family
-const getOrCreateDefaultItemFamily = async () => {
-  console.log(`[BACKEND] [CartService] Getting or creating default item family`);
+// Helper function to get or create item family
+const getOrCreateItemFamily = async () => {
+  console.log(`[BACKEND] [CartService] Getting or creating item family`);
   
   try {
     // Use the item family ID from environment variables if available
@@ -163,19 +110,29 @@ const getOrCreateDefaultItemFamily = async () => {
   }
 };
 
-// Helper function to create or get Chargebee product
-const createOrGetChargebeeProduct = async (product) => {
-  console.log(`[BACKEND] [CartService] Creating or getting Chargebee product for: ${product.id}`);
+// Helper function to find or create Chargebee item for a product
+const findOrCreateChargebeeItem = async (product) => {
+  console.log(`[BACKEND] [CartService] Finding or creating Chargebee item for product: ${product.id}`);
   
-  // Check if product already has a Chargebee item price ID
-  if (product.chargebeeItemPriceId) {
-    console.log(`[BACKEND] [CartService] Product already has Chargebee item price ID: ${product.chargebeeItemPriceId}`);
-    return product.chargebeeItemPriceId;
+  // Check if product already has Chargebee item IDs
+  if (product.chargebeeItemId && product.chargebeeItemPriceId) {
+    console.log(`[BACKEND] [CartService] Product already has Chargebee item IDs: ${product.chargebeeItemId}, ${product.chargebeeItemPriceId}`);
+    
+    // Verify that the item and item price actually exist in Chargebee
+    try {
+      await chargebee.item.retrieve(product.chargebeeItemId).request();
+      await chargebee.item_price.retrieve(product.chargebeeItemPriceId).request();
+      console.log(`[BACKEND] [CartService] Verified item and item price exist in Chargebee`);
+      return { itemId: product.chargebeeItemId, itemPriceId: product.chargebeeItemPriceId };
+    } catch (error) {
+      console.log(`[BACKEND] [CartService] Item or item price not found in Chargebee, will create new ones`);
+      // Continue to create new item and item price
+    }
   }
   
   try {
-    // Get or create a default item family
-    const itemFamilyId = await getOrCreateDefaultItemFamily();
+    // Get or create item family
+    const itemFamilyId = await getOrCreateItemFamily();
     
     // Generate a unique ID for the Chargebee item
     const chargebeeItemId = `product-${product.id}`;
@@ -197,7 +154,8 @@ const createOrGetChargebeeProduct = async (product) => {
           id: chargebeeItemId,
           name: product.name,
           description: product.description || '',
-          type: 'charge', // Fixed: Changed from 'product' to 'charge' for one-time purchases
+          // FIX: Use 'goods' for one-time products instead of 'charge'
+          type: 'goods', 
           status: 'active',
           item_family_id: itemFamilyId,
         }).request();
@@ -239,7 +197,7 @@ const createOrGetChargebeeProduct = async (product) => {
       
       try {
         itemPriceResult = await chargebee.item_price.create({
-          id: chargebeeItemPriceId, // Added: Unique ID for the item price
+          id: chargebeeItemPriceId,
           item_id: itemResult.item.id,
           name: `${product.name} - Price`,
           price: Math.round(product.price * 100), // Convert to cents
@@ -255,7 +213,6 @@ const createOrGetChargebeeProduct = async (product) => {
     }
     
     // Update our product with the Chargebee IDs
-    // Fixed: Using the correct field names from your schema
     await prisma.product.update({
       where: { id: product.id },
       data: {
@@ -265,20 +222,130 @@ const createOrGetChargebeeProduct = async (product) => {
     });
     
     console.log(`[BACKEND] [CartService] Updated product with Chargebee IDs`);
-    return itemPriceResult.item_price.id;
+    return { itemId: itemResult.item.id, itemPriceId: itemPriceResult.item_price.id };
   } catch (error) {
-    console.error(`[BACKEND] [CartService] Failed to create Chargebee product:`, error);
+    console.error(`[BACKEND] [CartService] Failed to create Chargebee item:`, error);
     throw new AppError('Failed to create product in payment system. Please try again.', 500);
   }
 };
 
-// ✅ ✅ ✅ PART 1: NEW FULLY IMPLEMENTED FUNCTION ✅ ✅ ✅
+// --- CART OPERATIONS ---
+
+export const addItemToCart = async (userId, { productId, quantity }, userEmail) => {
+  console.log(`[BACKEND] [CartService] Adding item to cart:`, { userId, productId, quantity });
+  await ensureUserExists(userId, userEmail);
+  
+  const product = await prisma.product.findUnique({ where: { id: productId } });
+  console.log(`[BACKEND] [CartService] Found product:`, product);
+  
+  if (!product) {
+    console.error(`[BACKEND] [CartService] Product not found: ${productId}`);
+    throw new AppError('Product not found.', 404);
+  }
+  
+  if (product.stock < 1) {
+    console.error(`[BACKEND] [CartService] Product out of stock: ${productId}`);
+    throw new AppError('Product is out of stock.', 400);
+  }
+  
+  try {
+    const existingCartItem = await prisma.cartItem.findUnique({ 
+      where: { userId_productId: { userId, productId } } 
+    });
+    
+    console.log(`[BACKEND] [CartService] Existing cart item:`, existingCartItem);
+    
+    let cartItem;
+    if (existingCartItem) {
+      console.log(`[BACKEND] [CartService] Updating existing cart item`);
+      cartItem = await prisma.cartItem.update({ 
+        where: { id: existingCartItem.id }, 
+        data: { quantity: existingCartItem.quantity + quantity }, 
+        include: { product: true } 
+      });
+    } else {
+      console.log(`[BACKEND] [CartService] Creating new cart item`);
+      cartItem = await prisma.cartItem.create({ 
+        data: { userId, productId, quantity }, 
+        include: { product: true } 
+      });
+    }
+    
+    console.log(`[BACKEND] [CartService] Cart item operation successful:`, cartItem);
+    return cartItem;
+  } catch (error) {
+    console.error(`[BACKEND] [CartService] Database error:`, error);
+    throw new AppError(`Database error: ${error.message}`, 500);
+  }
+};
+
+export const getUserCart = async (userId, userEmail) => {
+  console.log(`[BACKEND] [CartService] Fetching cart for userId: ${userId}`);
+  await ensureUserExists(userId, userEmail);
+  
+  const cartItems = await prisma.cartItem.findMany({ 
+    where: { userId }, 
+    include: { product: true }, 
+    orderBy: { addedAt: 'asc' } 
+  });
+  
+  console.log(`[BACKEND] [CartService] Found ${cartItems.length} items for this user.`);
+  return cartItems;
+};
+
+export const updateCartItemQuantity = async (userId, cartItemId, quantity, userEmail) => {
+  console.log(`[BACKEND] [CartService] Updating cart item quantity:`, { userId, cartItemId, quantity });
+  await ensureUserExists(userId, userEmail);
+  
+  const cartItem = await prisma.cartItem.findFirst({ 
+    where: { id: cartItemId, userId } 
+  });
+  
+  if (!cartItem) {
+    console.error(`[BACKEND] [CartService] Cart item not found: ${cartItemId}`);
+    throw new AppError('Cart item not found.', 404);
+  }
+  
+  const updatedItem = await prisma.cartItem.update({ 
+    where: { id: cartItemId }, 
+    data: { quantity }, 
+    include: { product: true } 
+  });
+  
+  console.log(`[BACKEND] [CartService] Updated cart item:`, updatedItem);
+  return updatedItem;
+};
+
+export const removeItemFromCart = async (userId, cartItemId, userEmail) => {
+  console.log(`[BACKEND] [CartService] Removing cart item:`, { userId, cartItemId });
+  await ensureUserExists(userId, userEmail);
+  
+  const cartItem = await prisma.cartItem.findFirst({ 
+    where: { id: cartItemId, userId } 
+  });
+  
+  if (!cartItem) {
+    console.error(`[BACKEND] [CartService] Cart item not found: ${cartItemId}`);
+    throw new AppError('Cart item not found.', 404);
+  }
+  
+  await prisma.cartItem.delete({ where: { id: cartItemId } });
+  console.log(`[BACKEND] [CartService] Cart item deleted successfully`);
+};
+
+// --- CHECKOUT FUNCTION (COMPLETELY FIXED WITH WORKAROUND) ---
 
 export const createCartCheckout = async (userId, userEmail) => {
-  console.log(`[BACKEND] [CartService] Creating checkout for user: ${userId}`);
+  console.log("--- Starting createCartCheckout ---");
+  console.log(`[Input] User ID: ${userId}`);
+  
+  if (!userId) {
+    throw new AppError('userId is required.', 400);
+  }
   
   // Ensure user exists in our database
   const user = await ensureUserExists(userId, userEmail);
+  console.log(`  -> SUCCESS: Found user: ${user.id} (${user.email})`);
 
   // Fetch all cart items for the user, including product and seller details
   const cartItems = await prisma.cartItem.findMany({
@@ -295,50 +362,92 @@ export const createCartCheckout = async (userId, userEmail) => {
     throw new AppError('Your cart is empty.', 400);
   }
 
-  // --- Prepare Line Items for Chargebee (Product Catalog 2.0) ---
-  const subscriptionItems = [];
+  // --- Prepare Items for Chargebee ---
+  // FIX: Renamed to 'items' to match the API parameter for one-time checkout
+  const items = [];
   
   for (const item of cartItems) {
-    // Create or get the Chargebee product for this item
-    const chargebeeItemPriceId = await createOrGetChargebeeProduct(item.product);
+    // Find or create the Chargebee item for this product
+    const { itemId, itemPriceId } = await findOrCreateChargebeeItem(item.product);
     
-    subscriptionItems.push({
-      item_price_id: chargebeeItemPriceId,
+    items.push({
+      item_price_id: itemPriceId,
       quantity: item.quantity,
-      // ✅ CRITICAL: Add metadata for payouts and order tracking
+      // Add metadata for payouts and order tracking
       metadata: {
         internal_product_id: item.product.id,
         internal_merchant_id: item.product.seller.id,
-        internal_cart_item_id: item.id, // To delete cart items after payment
+        internal_cart_item_id: item.id,
+        product_name: item.product.name,
+        product_price: item.product.price
       }
     });
   }
 
-  // --- Create Hosted Checkout Page (Product Catalog 2.0) ---
-  console.log(`[BACKEND] [CartService] Creating hosted checkout page for user: ${user.id}`);
-  console.log(`[BACKEND] [CartService] Subscription items:`, JSON.stringify(subscriptionItems, null, 2));
+  console.log("STEP 3: Calling Chargebee API to create Hosted Page...");
   
-  // Use the FRONTEND_URL from environment variables
-  const appUrl = process.env.FRONTEND_URL || 'https://dev-1de0bowjvfbbcx7q.us.auth0.com/';
-  console.log(`[BACKEND] [CartService] App URL: ${appUrl}`);
+  // Use proper redirect URLs from environment variables
+  const baseUrl = process.env.NODE_ENV === 'production' 
+    ? process.env.FRONTEND_URL || 'https://yourapp.com' 
+    : process.env.FRONTEND_URL || 'http://localhost:3000';
   
-  let checkoutPageResult;
+  console.log(`  -> Using base URL: ${baseUrl}`);
+  
+  // Prepare customer information with proper fallbacks
+  const customerInfo = {
+    email: user.email,
+    first_name: user.memberProfile?.name ? user.memberProfile.name.split(' ')[0] : 'User',
+    last_name: user.memberProfile?.name ? user.memberProfile.name.split(' ').slice(1).join(' ') : 'Name',
+  };
+  
+  console.log("  -> Customer info:", customerInfo);
+  console.log("  -> Items for checkout:", items);
+  
   try {
-    // ✅ FIXED: Remove the customer parameter and let Chargebee create a new customer automatically
-    checkoutPageResult = await chargebee.hosted_page.checkout_new_for_items({
-      subscription_items: subscriptionItems,
-      redirect_url: `${appUrl}/store?checkout=success`,
-      cancel_url: `${appUrl}/store`,
-      // Don't pass customer parameter - let Chargebee create a new customer
+    // --- ATTEMPT 1: TRY THE IDEAL ONE-TIME CHECKOUT ---
+    console.log("[DEBUG] Attempting one-time checkout...");
+    const hostedPageResult = await chargebee.hosted_page.checkout_one_time_for_items({
+      items: items, 
+      redirect_url: process.env.CHARGEBEE_REDIRECT_URL || `${baseUrl}/checkout-success`,
+      cancel_url: process.env.CHARGEBEE_CANCEL_URL || `${baseUrl}/checkout-cancelled`,
+      customer: customerInfo,
+      embed: false,
+      template_theme_id: process.env.CHARGEBEE_TEMPLATE_THEME_ID || undefined
     }).request();
     
-    console.log(`[BACKEND] [CartService] Checkout created successfully. URL: ${checkoutPageResult.hosted_page.url}`);
-    
-    // Return the hosted page URL to the frontend
-    return { checkoutUrl: checkoutPageResult.hosted_page.url };
+    console.log("  -> SUCCESS: One-time checkout created.");
+    return hostedPageResult.hosted_page.url;
+
   } catch (error) {
-    console.error(`[BACKEND] [CartService] Failed to create Chargebee checkout page:`, error);
-    console.error(`[BACKEND] [CartService] Error details:`, JSON.stringify(error, null, 2));
-    throw new AppError('Failed to create payment page. Please try again.', 500);
+    // --- ATTEMPT 2: FALLBACK TO A SUBSCRIPTION THAT BILLS ONCE ---
+    if (error.api_error_code === 'one_time_checkout_not_enabled_in_hp') {
+      console.warn("  -> WARNING: One-time checkout not enabled. Falling back to subscription with 1 billing cycle.");
+      
+      try {
+        const hostedPageResult = await chargebee.hosted_page.checkout_new_for_items({
+          // NOTE: This endpoint uses 'subscription_items'
+          subscription_items: items, 
+          redirect_url: process.env.CHARGEBEE_REDIRECT_URL || `${baseUrl}/checkout-success`,
+          cancel_url: process.env.CHARGEBEE_CANCEL_URL || `${baseUrl}/checkout-cancelled`,
+          customer: customerInfo,
+          embed: false,
+          template_theme_id: process.env.CHARGEBEE_TEMPLATE_THEME_ID || undefined,
+          // --- This is the key to making it a one-time payment ---
+          billing_cycles: 1, // The subscription will only bill once and then expire.
+          terms_of_service: 'This is a one-time purchase with no recurring charges.',
+        }).request();
+        
+        console.log("  -> SUCCESS: Fallback checkout (1-bill-cycle subscription) created.");
+        return hostedPageResult.hosted_page.url;
+
+      } catch (fallbackError) {
+        console.error("🔥🔥🔥 ERROR in fallback checkout 🔥🔥🔥");
+        throw new AppError(`Failed to create checkout: ${fallbackError.message}`, 500);
+      }
+    } else {
+      // If it's a different error, just throw it
+      console.error("🔥🔥🔥 ERROR in createCartCheckout 🔥🔥🔥");
+      throw new AppError(`Failed to create checkout: ${error.message}`, 500);
+    }
   }
 };
