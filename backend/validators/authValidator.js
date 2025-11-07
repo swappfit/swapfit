@@ -37,6 +37,11 @@ export const createGymProfileSchema = Joi.object({
 });
 
 export const createTrainerProfileSchema = Joi.object({
+  name: Joi.string().trim().min(2).max(100).required().messages({
+    'string.empty': 'Trainer name cannot be empty.',
+    'string.min': 'Trainer name must be at least 2 characters long.',
+    'any.required': 'Trainer name is required.',
+  }),
   bio: Joi.string().min(50).required(),
   experience: Joi.number().integer().min(0).required(),
   gallery: Joi.array().items(Joi.string().uri()).min(1).required(),

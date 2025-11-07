@@ -1,4 +1,3 @@
-// src/routes/userRoutes.js
 import express from 'express';
 import * as userController from '../controllers/userController.js';
 import authGatekeeper from '../middlewares/authGatekeeper.js'; // Changed from jwtAuth to authGatekeeper
@@ -18,5 +17,8 @@ router.get('/check-ins', userController.getUserCheckIns);
 
 // Stats route
 router.get('/stats', userController.getUserStats);
+
+// Subscriptions route
+router.get('/subscriptions', userController.getUserSubscriptions);
 
 export default router;

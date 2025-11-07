@@ -72,9 +72,9 @@ export const getAll = async (queryParams) => {
   }
 };
 
-export const getById = async (userId) => {
+export const getById = async (id) => {
   const profile = await prisma.trainerProfile.findUnique({
-    where: { userId },
+    where: { id },
     include: {
       user: { select: { id: true, email: true } },
       plans: { orderBy: { price: 'asc' } },
@@ -82,6 +82,32 @@ export const getById = async (userId) => {
     },
   });
   if (!profile) throw new AppError('Trainer not found.', 404);
+  return profile;
+};
+
+// Add this new service method
+export const getByUserId = async (userId) => {
+  const profile = await prisma.trainerProfile.findUnique({
+    where: { userId },
+    include: {
+      user: { 
+        select: { 
+          id: true, 
+          email: true
+        } 
+      },
+      plans: { 
+        orderBy: { price: 'asc' } 
+      },
+      gyms: { 
+        select: { 
+          id: true, 
+          name: true 
+        } 
+      },
+    },
+  });
+  if (!profile) throw new AppError('Trainer profile not found.', 404);
   return profile;
 };
 
@@ -106,11 +132,6 @@ export const getTrainersByPlanIds = async (planIds) => {
               select: {
                 id: true,
                 email: true,
-                memberProfile: {
-                  select: {
-                    name: true,
-                  }
-                }
               }
             }
           }
@@ -131,6 +152,10 @@ export const getTrainersByPlanIds = async (planIds) => {
           bio: plan.trainer.bio,
           experience: plan.trainer.experience,
           gallery: plan.trainer.gallery,
+          name: plan.trainer.name,
+          specialties: plan.trainer.specialties,
+          certifications: plan.trainer.certifications,
+          phone: plan.trainer.phone,
           plans: [plan]
         });
       } else {

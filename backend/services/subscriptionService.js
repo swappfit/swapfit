@@ -1,3 +1,4 @@
+// subscriptionService.js - Update to include trainer information
 import { PrismaClient } from '@prisma/client';
 import chargebeeModule from 'chargebee-typescript';
 import AppError from '../utils/AppError.js';
@@ -10,6 +11,53 @@ chargebee.configure({
   site: process.env.CHARGEBEE_SITE, 
   api_key: process.env.CHARGEBEE_API_KEY
 });
+
+/**
+ * Helper function to get predefined multi-gym tiers
+ */
+const getMultiGymTiers = async () => {
+    return [
+        {
+            id: 'silver',
+            name: 'Silver',
+            price: 49.99,
+            chargebeePlanId: process.env.CHARGEBEE_SILVER_PLAN_ID,
+            description: 'Access to all Silver tier gyms',
+            features: [
+                'Access to all Silver tier gyms',
+                'Basic amenities access',
+                'Monthly fitness assessment'
+            ]
+        },
+        {
+            id: 'gold',
+            name: 'Gold',
+            price: 79.99,
+            chargebeePlanId: process.env.CHARGEBEE_GOLD_PLAN_ID,
+            description: 'Access to all Gold tier gyms',
+            features: [
+                'Access to all Gold tier gyms',
+                'Premium amenities access',
+                'Weekly fitness assessment',
+                '1 personal training session per month'
+            ]
+        },
+        {
+            id: 'platinum',
+            name: 'Platinum',
+            price: 119.99,
+            chargebeePlanId: process.env.CHARGEBEE_PLATINUM_PLAN_ID,
+            description: 'Access to all Platinum tier gyms',
+            features: [
+                'Access to all Platinum tier gyms',
+                'VIP amenities access',
+                'Weekly fitness assessment',
+                '2 personal training sessions per month',
+                'Nutrition consultation'
+            ]
+        }
+    ];
+};
 
 export const createCheckoutSession = async ({ userId, planId, planType }) => {
     console.log("--- Starting createCheckoutSession ---");
@@ -27,22 +75,48 @@ export const createCheckoutSession = async ({ userId, planId, planType }) => {
         if (planType === 'GYM') {
             planFromDb = await prisma.gymPlan.findUnique({ where: { id: planId } });
         } else if (planType === 'TRAINER') {
-            planFromDb = await prisma.trainerPlan.findUnique({ where: { id: planId } });
+            planFromDb = await prisma.trainerPlan.findUnique({ 
+                where: { id: planId },
+                include: {
+                    trainer: {
+                        include: {
+                            user: {
+                                include: {
+                                    memberProfile: true
+                                }
+                            }
+                        }
+                    }
+                }
+            });
         } else if (planType === 'MULTI_GYM') { 
-            planFromDb = await prisma.multiGymTier.findUnique({ where: { id: planId } });
+            if (['silver', 'gold', 'platinum'].includes(planId.toLowerCase())) {
+                const tiers = await getMultiGymTiers();
+                planFromDb = tiers.find(tier => tier.id.toLowerCase() === planId.toLowerCase());
+                
+                if (!planFromDb) {
+                    throw new AppError(`Multi-gym tier ${planId} not found.`, 404);
+                }
+                
+                planFromDb.id = planId.toLowerCase();
+            } else {
+                throw new AppError('Invalid multi-gym plan ID. Must be silver, gold, or platinum.', 400);
+            }
+        } else if (planType === 'MULTI_GYM_BROWSE') {
+            planFromDb = { chargebeePlanId: null };
         } else {
             throw new AppError('Invalid plan type specified.', 400);
         }
         
         if (!planFromDb) {
-            throw new AppError(`Plan with your ID ${planId} was not found in our database.`, 404);
+            throw new AppError(`Plan with ID ${planId} was not found.`, 404);
         }
         console.log("  -> SUCCESS: Found plan in DB:", planFromDb);
 
-        if (!planFromDb.chargebeePlanId) {
+        if (planType !== 'MULTI_GYM_BROWSE' && !planFromDb.chargebeePlanId) {
             throw new AppError('This plan is not linked to a Chargebee plan ID. It cannot be purchased.', 404);
         }
-        console.log(`  -> SUCCESS: Plan is linked to Chargebee ID: ${planFromDb.chargebeePlanId}`);
+        console.log(`  -> SUCCESS: Plan is linked to Chargebee ID: ${planFromDb.chargebeePlanId || 'BROWSE'}`);
 
         console.log("STEP 2: Getting user from our database...");
         const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -52,19 +126,25 @@ export const createCheckoutSession = async ({ userId, planId, planType }) => {
         console.log(`  -> SUCCESS: Found user: ${user.id} (${user.email})`);
 
         console.log("STEP 3: Calling Chargebee API to create Hosted Page...");
-        // Create a hosted page without specifying a customer ID
-        // Chargebee will create a new customer automatically
-        const hostedPageResult = await chargebee.hosted_page.checkout_new_for_items({
-            subscription_items: [{ item_price_id: planFromDb.chargebeePlanId, quantity: 1 }],
+        
+        let hostedPageRequest = {
             redirect_url: `${process.env.FRONTEND_URL}/dashboard?subscription=success`,
             cancel_url: `${process.env.FRONTEND_URL}/explore`,
-            // Pass customer information to pre-fill the form
             customer: {
                 email: user.email,
                 first_name: user.name ? user.name.split(' ')[0] : '',
                 last_name: user.name ? user.name.split(' ').slice(1).join(' ') : '',
             }
-        }).request();
+        };
+        
+        if (planType === 'MULTI_GYM_BROWSE') {
+            hostedPageRequest.embedded = false;
+            hostedPageRequest.template_theme_id = process.env.CHARGEBEE_THEME_ID || null;
+        } else {
+            hostedPageRequest.subscription_items = [{ item_price_id: planFromDb.chargebeePlanId, quantity: 1 }];
+        }
+        
+        const hostedPageResult = await chargebee.hosted_page.checkout_new_for_items(hostedPageRequest).request();
         
         console.log("  -> SUCCESS: Chargebee returned a hosted page URL.");
         console.log("--- createCheckoutSession Finished Successfully ---");
@@ -100,54 +180,45 @@ export const createPortalSession = async (userId) => {
     return portalSessionResult.portal_session.access_url;
 };
 
-
-// ✅ MARKETPLACE INTEGRATION: Function to process a one-time marketplace order
 const processMarketplaceOrder = async (invoice) => {
     console.log(`[Webhook] Processing marketplace order for invoice: ${invoice.id}`);
     
     const { line_items, customer_id, total, id: chargebeeInvoiceId } = invoice;
 
-    // Find the user in our database using the Chargebee customer ID
     const user = await prisma.user.findUnique({ where: { chargebeeCustomerId: customer_id } });
     if (!user) {
         throw new Error(`User not found for Chargebee customer ID: ${customer_id}`);
     }
 
-    // Use a transaction to ensure all database operations succeed or fail together.
     const newOrder = await prisma.$transaction(async (tx) => {
-        
-        // First, check if an order for this invoice already exists to prevent duplicates.
         const existingOrder = await tx.order.findUnique({ where: { chargebeeInvoiceId } });
         if (existingOrder) {
             console.log(`[Webhook] Order for invoice ${chargebeeInvoiceId} already exists. Skipping.`);
             return existingOrder;
         }
 
-        // Create the main Order record
         const order = await tx.order.create({
             data: {
                 userId: user.id,
-                totalAmount: total / 100, // Convert back from cents to dollars
-                status: 'Paid', // Or 'Processing' if you need a fulfillment step
+                totalAmount: total / 100,
+                status: 'Paid',
                 chargebeeInvoiceId: chargebeeInvoiceId,
             },
         });
 
-        // Create an OrderItem for each line item in the Chargebee invoice
         const orderItemsToCreate = line_items.map(lineItem => {
             const { internal_product_id, internal_merchant_id, internal_cart_item_id } = lineItem.metadata;
             return {
                 orderId: order.id,
                 productId: internal_product_id,
                 name: lineItem.description,
-                price: lineItem.amount / 100, // Convert back from cents
+                price: lineItem.amount / 100,
                 quantity: lineItem.quantity,
             };
         });
 
         await tx.orderItem.createMany({ data: orderItemsToCreate });
 
-        // Clean up the user's cart by deleting the items that were just purchased
         const cartItemIdsToDelete = line_items.map(li => li.metadata.internal_cart_item_id);
         if (cartItemIdsToDelete.length > 0) {
             await tx.cartItem.deleteMany({
@@ -163,14 +234,8 @@ const processMarketplaceOrder = async (invoice) => {
         return order;
     });
 
-    // TODO: Add logic here to send notifications to the relevant merchants
-    // about their new orders.
-    
     return newOrder;
 };
-
-
-
 
 export const processWebhook = async (payload) => {
     const { parsedBody, rawBody, headers } = payload;
@@ -199,7 +264,6 @@ export const processWebhook = async (payload) => {
 
         console.log(`[Webhook] Processing event: ${event_type}`);
 
-        // ✅ MARKETPLACE INTEGRATION: Handle one-time invoice payments
         if (event_type === 'invoice_paid') {
             const invoice = content.invoice;
             if (invoice.line_items && invoice.line_items.length > 0 && invoice.line_items[0].metadata) {
@@ -208,15 +272,28 @@ export const processWebhook = async (payload) => {
                 return { success: true, message: `Successfully processed marketplace order for invoice ${invoice.id}` };
             } else {
                 console.log('[Webhook] Received subscription payment, deferring to subscription-specific events for processing.');
-                return { success: true, message: 'Ignored non-marketplace invoice_paid event.' };
             }
         }
 
-        // --- Existing Subscription Logic ---
         const subscriptionEvents = [
             'subscription_created', 'subscription_activated', 'subscription_renewed',
             'subscription_cancelled', 'subscription_expired'
         ];
+
+        if (event_type === 'customer_created') {
+            const customer = content.customer;
+            if (customer.email) {
+                const user = await prisma.user.findUnique({ where: { email: customer.email } });
+                if (user) {
+                    await prisma.user.update({
+                        where: { id: user.id },
+                        data: { chargebeeCustomerId: customer.id }
+                    });
+                    console.log(`[Webhook] ✅ Linked Chargebee customer ID ${customer.id} to user ${user.id}`);
+                }
+            }
+            return { success: true, message: `Processed customer creation` };
+        }
 
         if (!subscriptionEvents.includes(event_type)) {
             console.log(`[Webhook] Skipping unhandled event type: ${event_type}`);
@@ -226,13 +303,11 @@ export const processWebhook = async (payload) => {
         const subscription = content.subscription || {};
         const customer = content.customer || {};
 
-        // Find user by Chargebee customer ID
         let user = await prisma.user.findUnique({
             where: { chargebeeCustomerId: customer.id }
         });
 
         if (!user) {
-            // Fallback: Find user by email if not found by customer ID
             if (customer.email) {
                 user = await prisma.user.findUnique({ where: { email: customer.email } });
                 if (user) {
@@ -248,7 +323,6 @@ export const processWebhook = async (payload) => {
             }
         }
 
-        // Extract plan information
         let planItemId = null;
         if (subscription.subscription_items && subscription.subscription_items.length > 0) {
             planItemId = subscription.subscription_items[0].item_price_id;
@@ -258,21 +332,44 @@ export const processWebhook = async (payload) => {
             throw new AppError('No plan item ID found in subscription.', 400);
         }
 
-        // ✅✅✅ THIS IS THE CORRECTED PART ✅✅✅
-        // Find the plan in our database across all possible plan types
-        const [gymPlan, trainerPlan, multiGymTier] = await Promise.all([
+        const [gymPlan, trainerPlan] = await Promise.all([
             prisma.gymPlan.findFirst({ where: { chargebeePlanId: planItemId } }),
-            prisma.trainerPlan.findFirst({ where: { chargebeePlanId: planItemId } }),
-            prisma.multiGymTier.findFirst({ where: { chargebeePlanId: planItemId } }) // <-- ADDED THIS
+            prisma.trainerPlan.findFirst({ 
+                where: { chargebeePlanId: planItemId },
+                include: {
+                    trainer: {
+                        include: {
+                            user: {
+                                include: {
+                                    memberProfile: true
+                                }
+                            }
+                        }
+                    }
+                }
+            })
         ]);
 
-        if (!gymPlan && !trainerPlan && !multiGymTier) { // <-- UPDATED THIS CHECK
+        let multiGymTier = null;
+        const tiers = await getMultiGymTiers();
+        const matchedTier = tiers.find(tier => tier.chargebeePlanId === planItemId);
+        
+        if (matchedTier) {
+            multiGymTier = {
+                id: matchedTier.id,
+                name: matchedTier.name,
+                price: matchedTier.price,
+                description: matchedTier.description,
+                features: matchedTier.features
+            };
+        }
+
+        if (!gymPlan && !trainerPlan && !multiGymTier) {
             throw new AppError(`Plan not found for Chargebee plan ID ${planItemId}.`, 404);
         }
 
-        // Process subscription based on event type
         if (['subscription_created', 'subscription_activated', 'subscription_renewed'].includes(event_type)) {
-            const subscriptionData = {
+            let subscriptionData = {
                 userId: user.id,
                 status: subscription.status,
                 startDate: new Date(subscription.activated_at * 1000),
@@ -280,8 +377,26 @@ export const processWebhook = async (payload) => {
                 chargebeeSubscriptionId: subscription.id,
                 gymPlanId: gymPlan?.id || null,
                 trainerPlanId: trainerPlan?.id || null,
-                multiGymTierId: multiGymTier?.id || null, // <-- ADDED THIS
             };
+            
+            if (multiGymTier) {
+                let existingTier = await prisma.multiGymTier.findFirst({
+                    where: { name: multiGymTier.name }
+                });
+                
+                if (!existingTier) {
+                    existingTier = await prisma.multiGymTier.create({
+                        data: {
+                            name: multiGymTier.name,
+                            price: multiGymTier.price,
+                            chargebeePlanId: multiGymTier.chargebeePlanId
+                        }
+                    });
+                    console.log(`[Webhook] ✅ Created new MultiGymTier: ${existingTier.name}`);
+                }
+                
+                subscriptionData.multiGymTierId = existingTier.id;
+            }
             
             await prisma.subscription.upsert({
                 where: { chargebeeSubscriptionId: subscription.id },
@@ -311,3 +426,92 @@ export const processWebhook = async (payload) => {
         throw error;
     }
 };
+
+// Export the getMultiGymTiers function for use in controllers
+export { getMultiGymTiers };
+
+// Get multi-gym subscriptions for a specific user
+export const getMultiGymSubscriptions = async (userId) => {
+    try {
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            include: {
+                memberProfile: true,
+                subscriptions: {
+                    where: {
+                        multiGymTierId: { not: null }
+                    },
+                    include: {
+                        multiGymTier: true
+                    }
+                }
+            },
+            orderBy: {
+                id: 'desc'
+            }
+        });
+
+        if (!user) {
+            throw new AppError('User not found', 404);
+        }
+
+        const allSubscriptions = [];
+        
+        if (user.subscriptions && user.subscriptions.length > 0) {
+            user.subscriptions.forEach(subscription => {
+                allSubscriptions.push({
+                    ...subscription,
+                    userId: user.id,
+                    userEmail: user.email,
+                    userName: user.memberProfile?.name || user.email?.split('@')[0] || 'Unknown',
+                    userAvatar: (user.email || 'U')[0] + (user.email?.split('@')[0]?.[1] || 'N'),
+                });
+            });
+        }
+        
+        return allSubscriptions;
+    } catch (error) {
+        console.error("Error fetching multi-gym subscriptions:", error);
+        throw error;
+    }
+}
+
+// Cancel subscription
+export const cancelSubscription = async (subscriptionId) => {
+    try {
+        const subscription = await prisma.subscription.findUnique({
+            where: { id: subscriptionId }
+        });
+
+        if (!subscription) {
+            throw new AppError('Subscription not found', 404);
+        }
+
+        // Cancel in Chargebee if it has a chargebee subscription ID
+        if (subscription.chargebeeSubscriptionId) {
+            try {
+                await chargebee.subscription.cancel(subscription.chargebeeSubscriptionId, {
+                    end_of_term: true
+                }).request();
+                console.log(`[Subscription] Cancelled Chargebee subscription: ${subscription.chargebeeSubscriptionId}`);
+            } catch (cbError) {
+                console.error(`[Subscription] Failed to cancel Chargebee subscription:`, cbError);
+                // Continue with local cancellation even if Chargebee fails
+            }
+        }
+
+        // Update local subscription status
+        const updatedSubscription = await prisma.subscription.update({
+            where: { id: subscriptionId },
+            data: {
+                status: 'cancelled',
+                cancelledAt: new Date()
+            }
+        });
+
+        return updatedSubscription;
+    } catch (error) {
+        console.error("Error cancelling subscription:", error);
+        throw error;
+    }
+}

@@ -1,35 +1,18 @@
 // src/pages/Trainer/TrainerProfile.jsx
 import React, { useState, useEffect } from 'react';
-import * as trainerService from '../../api/trainerService';
+// FIX: Import the correct trainer service to call the trainer-specific endpoint
+import { getMyProfile } from '../../api/trainerService'; 
 import { useAuth } from '../../context/AuthContext';
 import { Edit, CheckCircle, Mail, Phone, AlertCircle } from 'lucide-react'; 
-
-// Mock Data (to be used if API fails)
-const FALLBACK_TRAINER = {
-  name: "Trainer",
-  avatar: "https://via.placeholder.com/120/4ade80/FFFFFF?text=TR",
-  experience: "0 Years",
-  specialties: ["Personal Training", "Group Fitness"],
-  certifications: ["Certified Trainer"],
-  bio: "Loading biography...",
-  contact: {
-    email: 'loading@example.com',
-    phone: 'N/A',
-    paymentMethods: false,
-  },
-  plans: [],
-};
-
 
 export default function TrainerProfile() {
   const [trainerData, setTrainerData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
 
   const fetchTrainerProfile = async () => {
-    // Check user.id defensively before proceeding with the fetch
     if (!user || !user.id) {
         setIsLoading(false);
         setError("User not logged in or ID not found. Please re-login.");
@@ -38,29 +21,22 @@ export default function TrainerProfile() {
     setIsLoading(true);
     setError(null);
     try {
-        // The service should return a profile object with a nested 'user'
-        const profile = await trainerService.getMyProfile(user.id);
+        // Call the trainer-specific service to get the trainer profile
+        const trainerProfileResponse = await getMyProfile();
         
-        // CRITICAL FIX: Make the mapping defensive against nulls
-        const formattedData = {
-            id: profile.id,
-            name: profile.user?.email?.split('@')[0] || profile.name || 'Trainer',
-            avatar: profile.gallery?.[0] || 'https://via.placeholder.com/120/4ade80/FFFFFF?text=AT',
-            experience: `${profile.experience || 0} Years`,
-            specialties: profile.specialties || ["Personal Training", "Group Fitness"],
-            certifications: profile.certifications || ["Certified Trainer"],
-            bio: profile.bio || 'No biography available.',
-            contact: {
-                email: profile.user?.email || 'N/A',
-                phone: profile.phone || 'Not provided', 
-                paymentMethods: true,
-            },
-            plans: profile.plans || [],
-        };
-        setTrainerData(formattedData);
+        // Map the data from the trainer profile response
+        const profileData = trainerProfileResponse.data || trainerProfileResponse; // Fallback for different response structures
+
+        // Check if the trainer profile exists
+        if (!profileData) {
+            throw new Error("Trainer profile not found. Please complete your profile first.");
+        }
+
+        // Directly set the trainer data without formatting
+        setTrainerData(profileData);
     } catch (err) {
-        setError(err.response?.data?.message || 'Failed to load profile.');
-        setTrainerData(FALLBACK_TRAINER);
+        const errorMessage = err.response?.data?.message || err.message || 'Failed to load profile.';
+        setError(errorMessage);
         console.error('Fetch Profile Error:', err);
     } finally {
         setIsLoading(false);
@@ -68,10 +44,13 @@ export default function TrainerProfile() {
   };
 
   useEffect(() => {
-    fetchTrainerProfile();
+    if (user?.role === 'TRAINER') {
+        fetchTrainerProfile();
+    } else {
+        setIsLoading(false);
+        setError("This page is for trainers only.");
+    }
   }, [user]);
-
-  const trainer = trainerData || FALLBACK_TRAINER;
   
   if (isLoading) {
     return (
@@ -81,7 +60,7 @@ export default function TrainerProfile() {
     );
   }
 
-  if (error) {
+  if (error && !trainerData) {
     return (
       <div className="w-full max-w-5xl mx-auto text-center py-20">
         <AlertCircle size={32} className="text-red-500 mx-auto" />
@@ -91,6 +70,8 @@ export default function TrainerProfile() {
     );
   }
 
+  // Use trainerData directly
+  const trainer = trainerData;
 
   return (
     <div className="w-full animate-fade-in max-w-5xl mx-auto px-4 py-6">
@@ -111,19 +92,23 @@ export default function TrainerProfile() {
         <div className="bg-gray-800 p-6 rounded-xl shadow-xl border border-gray-700">
           <div className="flex flex-col items-center mb-6">
             <img
-              src={trainer.avatar}
-              alt={trainer.name}
+              src={trainer.gallery?.[0] || "https://via.placeholder.com/120/4ade80/FFFFFF?text=TR"}
+              alt={trainer.name || "Trainer"}
               className="w-32 h-32 rounded-full object-cover border-4 border-teal-500 mb-4"
+              onError={(e) => {
+                e.target.onerror = null; 
+                e.target.src="https://via.placeholder.com/120/4ade80/FFFFFF?text=TR";
+              }}
             />
-            <h2 className="text-xl font-bold text-white">{trainer.name}</h2>
-            <p className="text-gray-400 text-sm">{trainer.experience} Experience</p>
+            <h2 className="text-xl font-bold text-white">{trainer.name || "Trainer"}</h2>
+            <p className="text-gray-400 text-sm">{trainer.experience ? `${trainer.experience} Years` : "Experience"}</p>
           </div>
 
           {/* Specialties */}
           <div className="mb-6">
             <h3 className="text-lg font-bold text-white mb-3">Specialties</h3>
             <div className="flex flex-wrap gap-2">
-              {trainer.specialties.map((spec, i) => (
+              {(trainer.specialties || ["Personal Training", "Group Fitness"]).map((spec, i) => (
                 <span
                   key={i}
                   className="px-3 py-1 bg-gray-700 text-teal-300 rounded-lg text-sm font-medium"
@@ -138,7 +123,7 @@ export default function TrainerProfile() {
           <div>
             <h3 className="text-lg font-bold text-white mb-3">Certifications</h3>
             <div className="space-y-2">
-              {trainer.certifications.map((cert, i) => (
+              {(trainer.certifications || ["Certified Trainer"]).map((cert, i) => (
                 <div key={i} className="flex items-center gap-2 text-gray-300 text-sm">
                   <CheckCircle size={16} className="text-green-400" />
                   {cert}
@@ -158,26 +143,20 @@ export default function TrainerProfile() {
                 <label className="block text-gray-400 text-sm mb-1">Email</label>
                 <div className="flex items-center bg-gray-700 border border-gray-600 rounded-lg px-4 py-3">
                   <Mail size={16} className="text-teal-500 mr-3" />
-                  <input type="email" value={trainer.contact.email} className="flex-1 bg-transparent text-white focus:outline-none" readOnly />
+                  <input type="email" value={trainer.user?.email || user.email || 'trainer@example.com'} className="flex-1 bg-transparent text-white focus:outline-none" readOnly />
                 </div>
               </div>
               <div>
                 <label className="block text-gray-400 text-sm mb-1">Phone</label>
                 <div className="flex items-center bg-gray-700 border border-gray-600 rounded-lg px-4 py-3">
                   <Phone size={16} className="text-teal-500 mr-3" />
-                  <input type="tel" value={trainer.contact.phone} className="flex-1 bg-transparent text-white focus:outline-none" readOnly />
+                  <input type="tel" value={trainer.phone || 'N/A'} className="flex-1 bg-transparent text-white focus:outline-none" readOnly />
                 </div>
               </div>
               <div className="flex items-center justify-between pt-2 border-t border-gray-700">
                 <label className="block text-gray-400 text-sm">Payment Methods</label>
-                <span
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                    trainer.contact.paymentMethods
-                      ? 'bg-teal-600 text-white'
-                      : 'bg-gray-600 text-gray-300'
-                  }`}
-                >
-                  {trainer.contact.paymentMethods ? 'Enabled' : 'Disabled'}
+                <span className="px-4 py-2 rounded-lg text-sm font-medium transition bg-teal-600 text-white">
+                  Enabled
                 </span>
               </div>
             </div>
@@ -187,7 +166,7 @@ export default function TrainerProfile() {
           <div className="bg-gray-800 p-6 rounded-xl shadow-xl border border-gray-700">
             <h3 className="text-xl font-bold text-white mb-4">Bio</h3>
             <p className="text-gray-300 leading-relaxed whitespace-pre-line">
-              {trainer.bio}
+              {trainer.bio || "No bio available."}
             </p>
           </div>
         </div>
@@ -201,15 +180,15 @@ export default function TrainerProfile() {
               <h3 className="text-lg font-bold text-white">Edit Profile</h3>
               <button onClick={() => setShowEditModal(false)} className="text-gray-400 hover:text-white text-2xl">×</button>
             </div>
-            <p className="text-gray-400 mb-6">This is a mock modal. In real app, you’d see form fields here.</p>
+            <p className="text-gray-400 mb-6">This is a mock modal. In real app, you'd see form fields here.</p>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">Name</label>
-                <input type="text" defaultValue={trainer.name} className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                <input type="text" defaultValue={trainer.name || ""} className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">Bio</label>
-                <textarea rows="4" defaultValue={trainer.bio} className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500"></textarea>
+                <textarea rows="4" defaultValue={trainer.bio || ""} className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500"></textarea>
               </div>
             </div>
             <div className="flex gap-3 pt-4">

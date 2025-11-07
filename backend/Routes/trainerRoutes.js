@@ -33,6 +33,7 @@ router.use(authGatekeeper); // Changed from jwtAuth to authGatekeeper
 // 2. TRAINER-ONLY ROUTES (Requires 'TRAINER' role)
 //================================================================
 // All routes in this section are automatically protected by authGatekeeper and roleAuth('TRAINER')
+router.get('/profile/me', roleAuth('TRAINER'), trainerController.getMyProfile); // Add this route
 router.put('/profile/me', validate(updateProfileSchema), roleAuth('TRAINER'), trainerController.updateTrainerProfile);
 router.get('/dashboard', roleAuth('TRAINER'), trainerController.getTrainerDashboard);
 router.get('/subscribers', roleAuth('TRAINER'), trainerController.getSubscribedMembers);

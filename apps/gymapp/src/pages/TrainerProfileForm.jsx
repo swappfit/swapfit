@@ -8,6 +8,7 @@ import { uploadMultipleImages } from '../utils/cloudinary';
 
 export default function TrainerProfileForm() {
   const [formData, setFormData] = useState({
+    name: '', // This name is correctly collected
     bio: '',
     experience: '',
     gallery: [],
@@ -65,6 +66,7 @@ export default function TrainerProfileForm() {
 
   const validate = () => {
     const newErrors = {};
+    if (!formData.name.trim()) newErrors.name = 'Trainer name is required.';
     if (!formData.bio.trim() || formData.bio.length < 50) newErrors.bio = 'A detailed bio of at least 50 characters is required.';
     if (formData.experience == null || formData.experience === '' || parseInt(formData.experience, 10) < 0) newErrors.experience = 'Please enter a valid number of years.';
     if (formData.gallery.length === 0) newErrors.gallery = 'Upload at least one photo.';
@@ -95,7 +97,6 @@ export default function TrainerProfileForm() {
     if (validate()) {
       setLoading(true);
       try {
-        // First upload images to Cloudinary
         setUploadingImages(true);
         let uploadedGallery = [];
         
@@ -115,9 +116,10 @@ export default function TrainerProfileForm() {
         setUploadingImages(false);
 
         const apiPayload = {
+          name: formData.name, // The name is correctly included in the payload
           bio: formData.bio,
           experience: parseInt(formData.experience, 10),
-          gallery: uploadedGallery, // Use the uploaded image URLs
+          gallery: uploadedGallery, // The uploaded gallery is included
           plans: formData.plans
             .filter(p => p.name && p.price && parseFloat(p.price) > 0)
             .map(p => ({ ...p, price: parseFloat(p.price) }))
@@ -154,6 +156,21 @@ export default function TrainerProfileForm() {
           {errors.submit && <div className="p-3 bg-red-900/50 text-red-300 rounded-lg">{errors.submit}</div>}
 
           <div className="space-y-6">
+            <div>
+              <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-2">Your Name</label>
+              <input 
+                id="name" 
+                name="name" 
+                type="text" 
+                value={formData.name} 
+                onChange={handleChange} 
+                className={`w-full bg-gray-800 border ${errors.name ? 'border-red-500' : 'border-gray-600'} rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-teal-500`} 
+                placeholder="Enter your full name" 
+                required 
+              />
+              {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
+            </div>
+            
             <div>
               <label htmlFor="bio" className="block text-sm font-medium text-gray-300 mb-2">Your Bio</label>
               <textarea id="bio" name="bio" value={formData.bio} onChange={handleChange} rows="5" className={`w-full bg-gray-800 border ${errors.bio ? 'border-red-500' : 'border-gray-600'} rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-teal-500`} placeholder="Tell potential clients about your training philosophy, specialties..." required />

@@ -1,4 +1,3 @@
-// src/services/userService.js
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import AppError from '../utils/AppError.js';
@@ -43,8 +42,6 @@ export const updateUserProfile = async (user, updateData) => {
   }
 };
 
-
-
 /**
  * @description Fetches the full user object, including their role-specific profile,
  * active subscriptions, and available multi-gym tiers for purchase.
@@ -67,7 +64,7 @@ export const getUserProfile = async (userId) => {
               include: {
                 gymPlan: { select: { id: true, name: true, gym: { select: { id: true, name: true } } } },
                 trainerPlan: { select: { id: true, name: true } },
-                multiGymTier: { select: { id: true, name: true, price: true } } // <-- Include tier details
+                // We'll handle multiGymTier in the controller
               }
             },
         },
@@ -83,14 +80,57 @@ export const getUserProfile = async (userId) => {
       throw new AppError("User not found.", 404);
     }
     
+    // Process subscriptions to handle multi-gym tier
+    const processedSubscriptions = await Promise.all(user.subscriptions.map(async sub => {
+      const processedSub = { ...sub };
+      
+      // Handle multi-gym tier if it exists
+      if (sub.multiGymTierId) {
+        // Get the tier details from the predefined tiers
+        const tiers = await getMultiGymTiers();
+        const tier = tiers.find(t => t.id === sub.multiGymTierId);
+        processedSub.multiGymTier = tier || null;
+      }
+      
+      return processedSub;
+    }));
+    
+    // Fetch accessible gyms based on multi-gym subscription
+    let accessibleGyms = [];
+    const activeMultiGymSub = processedSubscriptions.find(sub => sub.multiGymTier && sub.status === 'active');
+    
+    if (activeMultiGymSub) {
+      // Find gyms that match the user's tier
+      const tierName = activeMultiGymSub.multiGymTier.name;
+      accessibleGyms = await prisma.gym.findMany({
+        where: {
+          status: 'approved',
+          badges: {
+            has: tierName
+          }
+        },
+        select: {
+          id: true,
+          name: true,
+          address: true,
+          city: true,
+          state: true,
+          photos: true,
+          badges: true
+        }
+      });
+    }
+    
     console.log(`[UserService] Successfully fetched full profile for User ID: ${userId}`);
     
     // Exclude password before sending back to client
     const { password, ...userResponse } = user;
 
-    // Add the available tiers to the response object
+    // Add the available tiers and accessible gyms to the response object
     const profileWithTiers = {
         ...userResponse,
+        subscriptions: processedSubscriptions,
+        accessibleGyms,
         availableMultiGymTiers: availableTiers
     };
 
@@ -151,5 +191,128 @@ export const getUserCheckIns = async (userId) => {
  * @description Placeholder for fetching user statistics.
  */
 export const getUserStats = async (userId) => {
-    return { totalCheckIns: 0, favoriteGym: null, monthlyWorkouts: 0 };
+    try {
+        const totalCheckIns = await prisma.checkIn.count({ where: { userId } });
+        const favoriteGym = await prisma.gym.findFirst({
+            where: { checkIns: { some: { userId } } },
+            orderBy: { checkIns: { _count: 'desc' } },
+            select: { id: true, name: true }
+        });
+        const monthlyWorkouts = await prisma.checkIn.count({
+            where: {
+                userId,
+                checkIn: {
+                    gte: new Date(new Date().setDate(1)) // First day of the current month
+                }
+            }
+        });
+
+        return { totalCheckIns, favoriteGym, monthlyWorkouts };
+    } catch (error) {
+        console.error(`[UserService] Error fetching user stats:`, error);
+        throw new AppError('Failed to retrieve user statistics due to a server error.', 500);
+    } 
+};
+
+/**
+ * @description Helper function to get predefined multi-gym tiers
+ */
+const getMultiGymTiers = async () => {
+    // Return predefined tiers
+    return [
+        {
+            id: 'silver',
+            name: 'Silver',
+            price: 49.99,
+            chargebeePlanId: process.env.CHARGEBEE_SILVER_PLAN_ID,
+            description: 'Access to all Silver tier gyms',
+            features: [
+                'Access to all Silver tier gyms',
+                'Basic amenities access',
+                'Monthly fitness assessment'
+            ]
+        },
+        {
+            id: 'gold',
+            name: 'Gold',
+            price: 79.99,
+            chargebeePlanId: process.env.CHARGEBEE_GOLD_PLAN_ID,
+            description: 'Access to all Gold tier gyms',
+            features: [
+                'Access to all Gold tier gyms',
+                'Premium amenities access',
+                'Weekly fitness assessment',
+                '1 personal training session per month'
+            ]
+        },
+        {
+            id: 'platinum',
+            name: 'Platinum',
+            price: 119.99,
+            chargebeePlanId: process.env.CHARGEBEE_PLATINUM_PLAN_ID,
+            description: 'Access to all Platinum tier gyms',
+            features: [
+                'Access to all Platinum tier gyms',
+                'VIP amenities access',
+                'Weekly fitness assessment',
+                '2 personal training sessions per month',
+                'Nutrition consultation'
+            ]
+        }
+    ];
+};
+
+/**
+ * @description Get user's subscriptions
+ */
+export const getUserSubscriptions = async (userId) => {
+    try {
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            include: {
+                memberProfile: true,
+                subscriptions: {
+                    include: {
+                        gymPlan: {
+                            include: {
+                                gym: {
+                                    select: {
+                                        id: true,
+                                        name: true
+                                    }
+                                }
+                            }
+                        },
+                        trainerPlan: {
+                            include: {
+                                trainer: {
+                                    include: {
+                                        user: {
+                                            select: {
+                                                memberProfile: {
+                                                    select: {
+                                                        name: true
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        multiGymTier: true
+                    }
+                }
+            }
+        });
+
+        if (!user) {
+            throw new AppError('User not found', 404);
+        }
+
+        return user.subscriptions;
+    } catch (error) {
+        console.error("Error fetching user subscriptions:", error);
+        throw error;
+    }
 };

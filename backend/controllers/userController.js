@@ -1,4 +1,3 @@
-// src/controllers/userController.js
 import * as userService from '../services/userService.js';
 import * as authService from '../services/authService.js';
 import catchAsync from '../utils/catchAsync.js';
@@ -62,4 +61,13 @@ export const getUserCheckIns = catchAsync(async (req, res) => {
   const userId = await getUserId(req);
   const checkIns = await userService.getUserCheckIns(userId);
   res.status(200).json({ success: true, data: checkIns });
+});
+
+/**
+ * @description Get user's subscriptions
+ */
+export const getUserSubscriptions = catchAsync(async (req, res) => {
+  const userId = await getUserId(req);
+  const subscriptions = await userService.getUserSubscriptions(userId);
+  res.status(200).json({ success: true, data: subscriptions });
 });
