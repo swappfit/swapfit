@@ -1,9 +1,10 @@
-
 // src/api/apiClient.js
 import axios from 'axios';
 
+// The baseURL is now just the path that the proxy is listening for.
+// Vite will forward this to your ngrok URL.
 const apiClient = axios.create({
-    baseURL: `${import.meta.env.VITE_API_BASE_URL}/api`,
+    baseURL: 'http://localhost:5000/api', // ✅ SIMPLIFIED BASE URL
 });
 
 // Request Interceptor: Attaches the JWT to every outgoing request
@@ -20,18 +21,14 @@ apiClient.interceptors.request.use(
 
 // Response Interceptor: Centralizes error handling
 apiClient.interceptors.response.use(
-  (response) => response, // Pass through successful responses
+  (response) => response,
   (error) => {
-    // This is the ideal place to handle universal errors like 401 Unauthorized
     if (error.response && error.response.status === 401) {
-      // Example: Automatically log the user out if their token is expired/invalid
-      // You would call a logout function from your auth context here
       console.error("Authentication Error: Token is invalid or expired.");
       localStorage.removeItem('authToken');
-      // Force a reload to clear all state and redirect to login
-      window.location.href = '/';
+      localStorage.removeItem('authUser'); // Also clear the user
+      window.location.href = '/'; // Redirect to login page
     }
-    // Reject the promise so the component's `catch` block can handle it
     return Promise.reject(error);
   }
 );

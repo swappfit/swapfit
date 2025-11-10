@@ -1,5 +1,4 @@
 // src/services/authService.js
-
 import { PrismaClient } from '@prisma/client';
 import chargebeeModule from 'chargebee-typescript';
 import AppError from '../utils/AppError.js';
@@ -129,7 +128,7 @@ export const createProfile = async ({ userId, profileType, data, authPayload }) 
         }
         const user = await prisma.user.findUnique({ where: { auth0_id: authPayload.sub } });
         if (!user) { 
-          throw new AppError(`Authenticated user with Auth0 ID ${auth0Payload.sub} could not be found.`, 404); 
+          throw new AppError(`Authenticated user with Auth0 ID ${authPayload.sub} could not be found.`, 404); 
         }
         const memberData = {
           name: data.name, 
@@ -147,14 +146,21 @@ export const createProfile = async ({ userId, profileType, data, authPayload }) 
       }
 
       case 'TRAINER': {
-        const { plans: trainerPlansData, ...trainerData } = data;
+        const { plans: trainerPlansData, gallery, ...trainerData } = data;
         
         // First, create the trainer profile without Chargebee operations
         const profile = await prisma.$transaction(async (tx) => {
           const profile = await tx.trainerProfile.upsert({
             where: { userId },
-            update: trainerData,
-            create: { userId, ...trainerData },
+            update: { 
+              ...trainerData, 
+              gallery: gallery || [] // Ensure gallery is an array
+            },
+            create: { 
+              userId, 
+              ...trainerData, 
+              gallery: gallery || [] // Ensure gallery is an array
+            },
             include: { user: { select: { email: true } } }
           });
 
@@ -431,6 +437,7 @@ export const getFullUserById = async (userId) => {
   const { password, ...userResponse } = user;
   return userResponse;
 };
+
 // ✅✅✅ NEW ATOMIC SERVICE FUNCTION ✅✅✅
 export const verifyAndPromoteToAdmin = async (auth0Payload) => {
   const auth0Id = auth0Payload.sub;

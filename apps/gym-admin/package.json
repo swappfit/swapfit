@@ -3,7 +3,6 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "proxy": "https://de9880c5c1df.ngrok-free.app",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

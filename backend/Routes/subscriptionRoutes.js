@@ -1,5 +1,4 @@
-// src/routes/subscriptionRoutes.js
-
+// subscriptionRoutes.js - Add the admin route
 import express from 'express';
 import * as subscriptionController from '../controllers/subscriptionController.js';
 import authGatekeeper from '../middlewares/authGatekeeper.js';
@@ -17,6 +16,9 @@ router.post(
 // All other subscription routes are for authenticated users.
 router.use(authGatekeeper);
 
+// NEW: Admin endpoint to fetch all subscriptions
+router.get('/admin/all-subscriptions', subscriptionController.getAllSubscriptions);
+
 // POST /api/subscriptions/create-checkout-session
 // A member uses this to start the subscription process for a specific Gym or Trainer plan.
 router.post('/create-checkout-session', subscriptionController.createCheckoutSession);
@@ -24,5 +26,17 @@ router.post('/create-checkout-session', subscriptionController.createCheckoutSes
 // GET /api/subscriptions/portal-session
 // A member uses this to manage their existing subscriptions (e.g., cancel, update card).
 router.post('/portal-session', subscriptionController.createPortalSession);
+
+// POST /api/subscriptions/purchase-multi-gym
+// Purchase multi-gym tier subscription
+router.post('/purchase-multi-gym', subscriptionController.purchaseMultiGymTier);
+
+// GET /api/subscriptions/user/multi-gym
+// Get user's multi-gym subscriptions
+router.get('/user/multi-gym', subscriptionController.getUserMultiGymSubscriptions);
+
+// PATCH /api/subscriptions/:subscriptionId/cancel
+// Cancel subscription
+router.patch('/:subscriptionId/cancel', subscriptionController.cancelSubscription);
 
 export default router;

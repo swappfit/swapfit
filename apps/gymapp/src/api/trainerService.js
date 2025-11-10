@@ -18,12 +18,12 @@ export const getMyClients = async () => {
 
 /**
  * @description Fetches the trainer's own detailed profile data.
- * @param {string} userId - The user ID of the trainer.
  * @returns {Promise<object>} The backend response with the profile data.
  */
-export const getMyProfile = async (userId) => {
+export const getMyProfile = async () => {
     try {
-        const response = await apiClient.get(`/trainers/profile/${userId}`);
+        // FIX: Use the correct endpoint that matches the route definition
+        const response = await apiClient.get('/trainers/profile/me');
         console.log('✅ Profile API call successful:', response);
         return response.data;
     } catch (error) {

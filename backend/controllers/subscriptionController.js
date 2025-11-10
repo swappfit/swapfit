@@ -1,9 +1,11 @@
-// src/controllers/subscriptionController.js
-
+// subscriptionController.js - Update getAllSubscriptions to include trainer ID
 import * as subscriptionService from '../services/subscriptionService.js';
-import * as authService from '../services/authService.js'; // ✅ IMPORT authService to find the user
+import * as authService from '../services/authService.js';
 import catchAsync from '../utils/catchAsync.js';
 import AppError from '../utils/AppError.js';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 // A new helper function to get the user ID regardless of token type
 const getUserIdFromRequest = async (req) => {
@@ -29,6 +31,76 @@ const getUserIdFromRequest = async (req) => {
     throw new AppError('Could not identify user from token.', 401);
 };
 
+// NEW: Admin endpoint to fetch all subscriptions
+export const getAllSubscriptions = catchAsync(async (req, res) => {
+    // Check if user is admin
+    const userId = await getUserIdFromRequest(req);
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    
+    if (!user || user.role !== 'ADMIN') {
+        throw new AppError('Access denied. Admin privileges required.', 403);
+    }
+    
+    // Fetch all subscriptions with related data
+    const subscriptions = await prisma.subscription.findMany({
+        include: {
+            user: {
+                include: {
+                    memberProfile: true
+                }
+            },
+            gymPlan: {
+                include: {
+                    gym: true
+                }
+            },
+            trainerPlan: {
+                include: {
+                    trainer: {
+                        include: {
+                            user: {
+                                include: {
+                                    memberProfile: true
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            multiGymTier: true
+        },
+        orderBy: {
+            id: 'desc'
+        }
+    });
+    
+    // Format the data for the frontend
+    const formattedSubscriptions = subscriptions.map(subscription => {
+        const userAvatar = subscription.user.memberProfile?.name 
+            ? subscription.user.memberProfile.name.substring(0, 2).toUpperCase()
+            : (subscription.user.email || 'U')[0] + (subscription.user.email?.split('@')[0]?.[1] || 'N');
+            
+        return {
+            id: subscription.id,
+            userId: subscription.userId,
+            userEmail: subscription.user.email,
+            userName: subscription.user.memberProfile?.name || subscription.user.email?.split('@')[0] || 'Unknown',
+            userAvatar: userAvatar,
+            status: subscription.status,
+            startDate: subscription.startDate,
+            endDate: subscription.endDate,
+            chargebeeSubscriptionId: subscription.chargebeeSubscriptionId,
+            gymPlan: subscription.gymPlan,
+            trainerPlan: subscription.trainerPlan,
+            multiGymTier: subscription.multiGymTier
+        };
+    });
+    
+    res.status(200).json({ 
+        success: true, 
+        data: formattedSubscriptions 
+    });
+});
 
 export const createCheckoutSession = catchAsync(async (req, res) => {
   // ✅✅✅ THE DEFINITIVE FIX IS HERE ✅✅✅
@@ -62,4 +134,38 @@ export const handleChargebeeWebhook = catchAsync(async (req, res) => {
         headers: req.headers
     });
     res.status(200).send(); 
+});
+
+/**
+ * @description Purchase multi-gym tier subscription
+ */
+export const purchaseMultiGymTier = catchAsync(async (req, res) => {
+    const userId = await getUserIdFromRequest(req);
+    const { tierId } = req.body;
+
+    const checkoutUrl = await subscriptionService.createCheckoutSession({ 
+        userId, 
+        planId: tierId, 
+        planType: 'MULTI_GYM' 
+    });
+    
+    res.status(200).json({ success: true, data: { checkoutUrl } });
+});
+
+/**
+ * @description Get user's multi-gym subscriptions
+ */
+export const getUserMultiGymSubscriptions = catchAsync(async (req, res) => {
+    const userId = await getUserIdFromRequest(req);
+    const subscriptions = await subscriptionService.getMultiGymSubscriptions(userId);
+    res.status(200).json({ success: true, data: subscriptions });
+});
+
+/**
+ * @description Cancel subscription
+ */
+export const cancelSubscription = catchAsync(async (req, res) => {
+    const { subscriptionId } = req.params;
+    const subscription = await subscriptionService.cancelSubscription(subscriptionId);
+    res.status(200).json({ success: true, message: 'Subscription cancelled successfully.', data: subscription });
 });

@@ -1,85 +1,83 @@
-// src/validators/adminValidator.js
 import Joi from 'joi';
-import AppError from '../utils/AppError.js';
 
-/**
- * Reusable validation middleware factory.
- * Takes a Joi schema and returns an Express middleware function.
- */
-const validate = (schema) => (req, res, next) => {
-  // We validate against a combination of body, params, and query for flexibility
-  const { error } = schema.validate({ ...req.body, ...req.params, ...req.query });
-  
-  if (error) {
-    // If validation fails, format the error message and pass it to the global error handler.
-    const errorMessage = error.details.map((detail) => detail.message).join('; ');
-    return next(new AppError(errorMessage, 400)); // 400 for Bad Request
-  }
+// Common schemas
+const idSchema = Joi.string().uuid().required();
+const paginationSchema = Joi.object({
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(100).default(20),
+});
 
-  // If validation succeeds, proceed to the next middleware or controller.
-  return next();
-};
-
-const cuidSchema = Joi.string().length(25).required();
-
-// --- Schemas for Gym Management by Admin ---
-
+// Gym Management Schemas
 export const updateGymStatusSchema = Joi.object({
-  gymId: cuidSchema.label('Gym ID').required(),
   status: Joi.string().valid('approved', 'rejected').required(),
 });
 
 export const updateGymBadgesSchema = Joi.object({
-    gymId: cuidSchema.label('Gym ID').required(),
-    badges: Joi.array().items(Joi.string()).required(),
-});
-
-// --- NEW: Schemas for Multi-Gym Tier Management by Admin ---
-
-export const createMultiGymTierSchema = Joi.object({
-  name: Joi.string().trim().min(2).max(50).required(),
-  price: Joi.number().positive().required(),
-  chargebeePlanId: Joi.string().trim().optional(),
+  badges: Joi.array().items(Joi.string()).required(),
 });
 
 export const assignGymToTierSchema = Joi.object({
-  gymId: cuidSchema.label('Gym ID').required(), // From params
-  tierName: Joi.string().trim().required(),
+  tierName: Joi.string().valid('Silver', 'Gold', 'Platinum').required(),
 });
 
-
-// --- Schemas for Challenge Management by Admin ---
-
+// Challenge Schemas
 export const createChallengeSchema = Joi.object({
-  name: Joi.string().trim().min(3).max(100).required(),
-  description: Joi.string().trim().max(500).optional().allow(''),
-  metric: Joi.string().valid('steps', 'workouts').required(),
-  goal: Joi.number().integer().positive().required(),
+  title: Joi.string().min(3).max(100).required(),
+  description: Joi.string().min(10).max(500).required(),
   startDate: Joi.date().iso().required(),
   endDate: Joi.date().iso().greater(Joi.ref('startDate')).required(),
+  rewards: Joi.array().items(Joi.string()).required(),
 });
 
 export const updateChallengeSchema = Joi.object({
-  id: cuidSchema.label('Challenge ID').required(), // From params
-  name: Joi.string().trim().min(3).max(100).optional(),
-  description: Joi.string().trim().max(500).optional().allow(''),
-  goal: Joi.number().integer().positive().optional(),
-  startDate: Joi.date().iso().optional(),
-  endDate: Joi.date().iso().optional(),
+  title: Joi.string().min(3).max(100),
+  description: Joi.string().min(10).max(500),
+  startDate: Joi.date().iso(),
+  endDate: Joi.date().iso().greater(Joi.ref('startDate')),
+  rewards: Joi.array().items(Joi.string()),
+  status: Joi.string().valid('active', 'completed', 'cancelled'),
 });
 
 export const challengeIdParamSchema = Joi.object({
-    id: cuidSchema.label('Challenge ID').required(),
+  challengeId: idSchema,
 });
 
-
-// --- Schema for Broadcast Notifications by Admin ---
-
+// Notification Schema
 export const broadcastNotificationSchema = Joi.object({
-  title: Joi.string().trim().min(3).max(100).required(),
-  message: Joi.string().trim().min(3).max(500).required(),
+  title: Joi.string().min(3).max(100).required(),
+  message: Joi.string().min(10).max(500).required(),
 });
 
+// User Management Schema
+export const getUsersSchema = paginationSchema.keys({
+  role: Joi.string().valid('MEMBER', 'TRAINER', 'GYM_OWNER', 'ADMIN'),
+});
 
-// Export the middleware as the default export for convenience
-export default validate;
+// Subscription Management Schema
+export const subscriptionIdParamSchema = Joi.object({
+  subscriptionId: idSchema,
+});
+
+// Export a validation middleware factory
+export default function validate(schema) {
+  return (req, res, next) => {
+    const { error, value } = schema.validate(req.body, {
+      abortEarly: false,
+      stripUnknown: true,
+    });
+
+    if (error) {
+      const errorMessage = error.details
+        .map(detail => detail.message)
+        .join(', ');
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        error: errorMessage,
+      });
+    }
+
+    req.body = value;
+    next();
+  };
+}

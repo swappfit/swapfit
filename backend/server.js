@@ -1,177 +1,4 @@
-
-// import dotenv from 'dotenv';
-// // This MUST be the first line to ensure all other files can access the variables.
-// dotenv.config();
-
-// import express from 'express';
-// import cors from 'cors';
-// import { createServer } from 'http';
-// import { Server } from 'socket.io';
-// import { auth0Middleware } from './middlewares/auth0Middleware.js';
-// import { PrismaClient } from '@prisma/client';
-
-// // --- Import All Route Files ---
-// import authRoutes from './Routes/authRoutes.js';
-// import dashboardRoutes from './Routes/dashboardRoutes.js';
-// import gymRoutes from './Routes/gymRoutes.js';
-// import trainerRoutes from './Routes/trainerRoutes.js';
-// import subscriptionRoutes from './Routes/subscriptionRoutes.js';
-// import workoutRoutes from './Routes/workoutRoutes.js';
-// import dietRoutes from './Routes/dietRoutes.js';
-// import healthRoutes from './Routes/healthRoutes.js';
-// import chatRoutes from './Routes/chatRoutes.js';
-// import notificationRoutes from './Routes/notificationRoutes.js';
-// import transactionRoutes from './Routes/transactionRoutes.js';
-// import analyticsRoutes from './Routes/analyticsRoutes.js';
-// import userRoutes from './Routes/userRoutes.js';
-// import challengeRoutes from './Routes/challengeRoutes.js';
-// import communityRoutes from './Routes/communityRoutes.js';
-// import productRoutes from './Routes/productRoutes.js';
-// import bookingRoutes from './Routes/bookingRoutes.js';
-// import multiGymRoutes from './Routes/multiGymRoutes.js';
-// import adminRoutes from './Routes/adminRoutes.js';
-// import errorHandler from './middlewares/errorHandler.js';
-// import cartRoutes from './Routes/cartRoutes.js';
-// import trainingRoutes from './Routes/trainingRoutes.js';
-// import merchantRoutes from './Routes/merchantRoutes.js';
-// import { handleSendMessage } from './controllers/chatController.js';
-
-// const prisma = new PrismaClient();
-// const app = express();
-// const httpServer = createServer(app);
-// const io = new Server(httpServer, {
-//   cors: {
-//     origin: "*",
-//     methods: ["GET", "POST"]
-//   }
-// });
-
-// // --- Socket.IO logic ---
-// io.use(async (socket, next) => {
-//   const token = socket.handshake.auth?.token;
-//   if (!token) {
-//     return next(new Error('Authentication Error: Token not provided.'));
-//   }
-  
-//   try {
-//     // Create a mock request object to use with auth0Middleware
-//     const mockReq = {
-//       headers: {
-//         authorization: `Bearer ${token}`
-//       }
-//     };
-    
-//     // Create a mock response object
-//     const mockRes = {
-//       status: () => mockRes,
-//       json: () => mockRes
-//     };
-    
-//     // Use auth0Middleware to verify the token
-//     await new Promise((resolve, reject) => {
-//       auth0Middleware(mockReq, mockRes, (err) => {
-//         if (err) {
-//           return reject(err);
-//         }
-//         resolve();
-//       });
-//     });
-    
-//     // Get the Auth0 subject ID
-//     const auth0Id = mockReq.auth.payload.sub;
-    
-//     // Find the user in your database
-//     const user = await prisma.user.findUnique({
-//       where: { auth0_id: auth0Id },
-//       select: { id: true, email: true, role: true }
-//     });
-    
-//     if (!user) {
-//       return next(new Error('Authentication Error: User not found'));
-//     }
-    
-//     // Attach the user to the socket
-//     socket.user = user;
-//     console.log(`Socket authenticated for user: ${user.email}`);
-//     next();
-//   } catch (err) {
-//     console.error('Socket auth error:', err);
-//     return next(new Error('Authentication Error: Invalid token.'));
-//   }
-// });
-
-// io.on('connection', (socket) => {
-//   console.log(`User connected: ${socket.user.email} (Socket ID: ${socket.id})`);
-//   socket.on('joinRoom', (conversationId) => {
-//     socket.join(conversationId);
-//     console.log(`User ${socket.user.email} joined room ${conversationId}`);
-//   });
-//   socket.on('sendMessage', (data) => {
-//     handleSendMessage(socket, data);
-//   });
-//   socket.on('disconnect', () => {
-//     console.log(`User disconnected: ${socket.user.email}`);
-//   });
-// });
-
-// // --- Standard Express Middleware ---
-// app.use(cors());
-// app.use(express.json({
-//   verify: (req, res, buf) => {
-//     req.rawBody = buf;
-//   }
-// })); // Middleware to parse JSON bodies
-
-// app.use(express.urlencoded({ extended: true }));
-// app.use((req, res, next) => {
-//   console.log('---------------------------------');
-//   console.log('Request Received by Express App:');
-//   console.log(`METHOD: ${req.method}`);
-//   console.log(`URL: ${req.originalUrl}`);
-//   console.log(`BODY:`, req.body);
-//   console.log('---------------------------------');
-//   next();
-// });
-
-// // --- Register All API Routes ---
-// app.use('/api/auth', authRoutes);
-// app.use('/api/dashboard', dashboardRoutes);
-// app.use('/api/gyms', gymRoutes);
-// app.use('/api/trainers', trainerRoutes);
-// app.use('/api/subscriptions', subscriptionRoutes);
-// app.use('/api/workouts', workoutRoutes);
-// app.use('/api/diet', dietRoutes);
-// app.use('/api/health', healthRoutes);
-// app.use('/api/chat', chatRoutes);
-// app.use('/api/notifications', notificationRoutes);
-// app.use('/api/transactions', transactionRoutes);
-// app.use('/api/analytics', analyticsRoutes);
-// app.use('/api/users', userRoutes);
-// app.use('/api/challenges', challengeRoutes);
-// app.use('/api/community', communityRoutes);
-// app.use('/api/products', productRoutes);
-// app.use('/api/bookings', bookingRoutes);
-// app.use('/api/multi-gym', multiGymRoutes);
-// app.use('/api/admin', adminRoutes);
-// app.use('/api/cart', cartRoutes);
-// app.use('/api/training', trainingRoutes);
-// app.use('/api/merchant', merchantRoutes);
-
-// // --- Global Error Handler ---
-// app.use(errorHandler);
-
-// // --- Root Endpoint and Server Initialization ---
-// app.get('/', (req, res) => {
-//   res.send('API is running and WebSocket server is active...');
-// });
-
-// const PORT = process.env.PORT || 5000;
-// httpServer.listen(PORT, '0.0.0.0', () => {
-//   console.log(`Server running on port ${PORT}`);
-// });
-
-// export { io };
-
+// src/app.js
 import dotenv from 'dotenv';
 // This MUST be the first line to ensure all other files can access the variables.
 dotenv.config();
@@ -204,13 +31,13 @@ import productRoutes from './Routes/productRoutes.js';
 import bookingRoutes from './Routes/bookingRoutes.js';
 import multiGymRoutes from './Routes/multiGymRoutes.js';
 import adminRoutes from './Routes/adminRoutes.js';
+import publicRoutes from './Routes/publicRoutes.js'; // Add this line
 import errorHandler from './middlewares/errorHandler.js';
 import cartRoutes from './Routes/cartRoutes.js';
 import trainingRoutes from './Routes/trainingRoutes.js';
 import merchantRoutes from './Routes/merchantRoutes.js';
 import { handleSendMessage } from './controllers/chatController.js';
 import webhookRoutes from './Routes/webhookRoutes.js';
-
 
 const prisma = new PrismaClient();
 const app = express();
@@ -347,10 +174,11 @@ app.use('/api/products', productRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/multi-gym', multiGymRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/public', publicRoutes); // Add this line
 app.use('/api/cart', cartRoutes);
 app.use('/api/training', trainingRoutes);
 app.use('/api/merchant', merchantRoutes);
-
+app.use('/api/webhooks', webhookRoutes); // Add this line for webhooks
 
 // --- Global Error Handler ---
 app.use(errorHandler);
@@ -366,132 +194,3 @@ httpServer.listen(PORT, '0.0.0.0', () => {
 });
 
 export { io };
-
-// // server.js — FULLY FIXED & COMPLETE
-// import dotenv from 'dotenv';
-// dotenv.config();
-
-// import express from 'express';
-// import cors from 'cors';
-// import { createServer } from 'http';
-// import { Server } from 'socket.io';
-// import jwt from 'jsonwebtoken';
-// import path from 'path';
-// import { fileURLToPath } from 'url';
-
-// // --- Import Routes ---
-// import authRoutes from './Routes/authRoutes.js';
-// import dashboardRoutes from './Routes/dashboardRoutes.js';
-// import gymRoutes from './Routes/gymRoutes.js';
-// import trainerRoutes from './Routes/trainerRoutes.js';
-// import subscriptionRoutes from './Routes/subscriptionRoutes.js';
-// import workoutRoutes from './Routes/workoutRoutes.js';
-// import dietRoutes from './Routes/dietRoutes.js';
-// import healthRoutes from './Routes/healthRoutes.js';
-// import chatRoutes from './Routes/chatRoutes.js';
-// import notificationRoutes from './Routes/notificationRoutes.js';
-// import transactionRoutes from './Routes/transactionRoutes.js';
-// import analyticsRoutes from './Routes/analyticsRoutes.js';
-// import userRoutes from './Routes/userRoutes.js';
-// import challengeRoutes from './Routes/challengeRoutes.js';
-// import communityRoutes from './Routes/communityRoutes.js';
-// import productRoutes from './Routes/productRoutes.js';
-// import bookingRoutes from './Routes/bookingRoutes.js';
-// import multiGymRoutes from './Routes/multiGymRoutes.js';
-// import adminRoutes from './Routes/adminRoutes.js';
-// import cartRoutes from './Routes/cartRoutes.js';
-// import trainingRoutes from './Routes/trainingRoutes.js';
-// import merchantRoutes from './Routes/merchantRoutes.js';
-// import uploadRoutes from './Routes/uploadRoutes.js';
-// import errorHandler from './middlewares/errorHandler.js';
-// import { handleSendMessage } from './controllers/chatController.js';
-
-// const app = express();
-// const httpServer = createServer(app);
-// const io = new Server(httpServer, {
-//   cors: {
-//     origin: "*",
-//     methods: ["GET", "POST"]
-//   }
-// });
-
-// // --- Socket.IO Authentication ---
-// io.use((socket, next) => {
-//   const token = socket.handshake.auth?.token;
-//   if (!token) return next(new Error('Authentication Error: Token not provided.'));
-  
-//   jwt.verify(token, process.env.JWT_SECRET, (err, userPayload) => {
-//     if (err) return next(new Error('Authentication Error: Invalid token.'));
-//     socket.user = userPayload;
-//     next();
-//   });
-// });
-
-// io.on('connection', (socket) => {
-//   console.log(`User connected: ${socket.user.email} (Socket ID: ${socket.id})`);
-//   socket.on('joinRoom', (conversationId) => {
-//     socket.join(conversationId);
-//     console.log(`User ${socket.user.email} joined room ${conversationId}`);
-//   });
-//   socket.on('sendMessage', (data) => {
-//     handleSendMessage(socket, data);
-//   });
-//   socket.on('disconnect', () => {
-//     console.log(`User disconnected: ${socket.user.email}`);
-//   });
-// });
-
-// // --- Middleware ---
-// app.use(cors());
-// app.use(express.json());
-// app.use(express.urlencoded({ extended: true }));
-
-// // Debug logger
-// app.use((req, res, next) => {
-//   console.log('---------------------------------');
-//   console.log(`METHOD: ${req.method} | URL: ${req.originalUrl}`);
-//   console.log('BODY:', req.body);
-//   console.log('---------------------------------');
-//   next();
-// });
-
-// // --- API Routes ---
-// app.use('/api/auth', authRoutes);
-// app.use('/api/dashboard', dashboardRoutes);
-// app.use('/api/gyms', gymRoutes);
-// app.use('/api/trainers', trainerRoutes);
-// app.use('/api/subscriptions', subscriptionRoutes);
-// app.use('/api/workouts', workoutRoutes);
-// app.use('/api/diet', dietRoutes);
-// app.use('/api/health', healthRoutes);
-// app.use('/api/chat', chatRoutes);
-// app.use('/api/notifications', notificationRoutes);
-// app.use('/api/transactions', transactionRoutes);
-// app.use('/api/analytics', analyticsRoutes);
-// app.use('/api/users', userRoutes);
-// app.use('/api/challenges', challengeRoutes);
-// app.use('/api/community', communityRoutes);
-// app.use('/api/products', productRoutes);
-// app.use('/api/bookings', bookingRoutes);
-// app.use('/api/multi-gym', multiGymRoutes);
-// app.use('/api/admin', adminRoutes);
-// app.use('/api/cart', cartRoutes);
-// app.use('/api/training', trainingRoutes);
-// app.use('/api/merchant', merchantRoutes);
-
-
-// // --- Error Handler ---
-// app.use(errorHandler);
-
-// // --- Root ---
-// app.get('/', (req, res) => {
-//   res.send('API is running and WebSocket server is active...');
-// });
-
-// // --- Start Server ---
-// const PORT = process.env.PORT || 5000;
-// httpServer.listen(PORT, '0.0.0.0', () => {
-//   console.log(`Server running on port ${PORT}`);
-// });
-
-// export { io };

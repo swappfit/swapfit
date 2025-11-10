@@ -70,6 +70,7 @@ model TrainerProfile {
   id               String                   @id @default(cuid())
   user             User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId           String                   @unique
+  name             String? 
   bio              String?
   experience       Int?
   gallery          Json
@@ -425,6 +426,7 @@ model Product {
   updatedAt   DateTime   @updatedAt
   chargebeeItemId      String?    // To store the ID of the "Item" in Chargebee
   chargebeeItemPriceId String?    // To store the ID of the "Item Price" in Chargebee
+  chargebeePlanId      String?    // Add this field to store the ID of the "Plan" in Chargebee
 }
 
 model CartItem {

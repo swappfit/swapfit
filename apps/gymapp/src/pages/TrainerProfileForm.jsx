@@ -4,9 +4,11 @@ import { useNavigate } from 'react-router-dom';
 import * as authService from '../api/authService';
 import parseApiError from '../utils/parseApiError';
 import { useAuth } from '../context/AuthContext';
+import { uploadMultipleImages } from '../utils/cloudinary';
 
 export default function TrainerProfileForm() {
   const [formData, setFormData] = useState({
+    name: '', // This name is correctly collected
     bio: '',
     experience: '',
     gallery: [],
@@ -18,6 +20,7 @@ export default function TrainerProfileForm() {
   const [photoPreviews, setPhotoPreviews] = useState([]);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [uploadingImages, setUploadingImages] = useState(false);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -33,6 +36,17 @@ export default function TrainerProfileForm() {
     setFormData((prev) => ({ ...prev, gallery: [...prev.gallery, ...files] }));
     const previews = files.map(file => URL.createObjectURL(file));
     setPhotoPreviews(prev => [...prev, ...previews]);
+  };
+
+  const removePhoto = (index) => {
+    const newGallery = [...formData.gallery];
+    const newPreviews = [...photoPreviews];
+    
+    newGallery.splice(index, 1);
+    newPreviews.splice(index, 1);
+    
+    setFormData(prev => ({ ...prev, gallery: newGallery }));
+    setPhotoPreviews(newPreviews);
   };
 
   const addPlan = () => {
@@ -52,6 +66,7 @@ export default function TrainerProfileForm() {
 
   const validate = () => {
     const newErrors = {};
+    if (!formData.name.trim()) newErrors.name = 'Trainer name is required.';
     if (!formData.bio.trim() || formData.bio.length < 50) newErrors.bio = 'A detailed bio of at least 50 characters is required.';
     if (formData.experience == null || formData.experience === '' || parseInt(formData.experience, 10) < 0) newErrors.experience = 'Please enter a valid number of years.';
     if (formData.gallery.length === 0) newErrors.gallery = 'Upload at least one photo.';
@@ -82,10 +97,29 @@ export default function TrainerProfileForm() {
     if (validate()) {
       setLoading(true);
       try {
+        setUploadingImages(true);
+        let uploadedGallery = [];
+        
+        if (formData.gallery.length > 0) {
+          try {
+            uploadedGallery = await uploadMultipleImages(formData.gallery);
+            console.log('Images uploaded successfully:', uploadedGallery);
+          } catch (uploadError) {
+            console.error('Image upload failed:', uploadError);
+            setErrors({ submit: 'Failed to upload images. Please try again.' });
+            setLoading(false);
+            setUploadingImages(false);
+            return;
+          }
+        }
+        
+        setUploadingImages(false);
+
         const apiPayload = {
+          name: formData.name, // The name is correctly included in the payload
           bio: formData.bio,
           experience: parseInt(formData.experience, 10),
-          gallery: formData.gallery.map(file => `https://placehold.co/600x400?text=${encodeURIComponent(file.name)}`),
+          gallery: uploadedGallery, // The uploaded gallery is included
           plans: formData.plans
             .filter(p => p.name && p.price && parseFloat(p.price) > 0)
             .map(p => ({ ...p, price: parseFloat(p.price) }))
@@ -105,6 +139,7 @@ export default function TrainerProfileForm() {
         console.error("Profile creation failed:", err);
       } finally {
         setLoading(false);
+        setUploadingImages(false);
       }
     }
   };
@@ -121,6 +156,21 @@ export default function TrainerProfileForm() {
           {errors.submit && <div className="p-3 bg-red-900/50 text-red-300 rounded-lg">{errors.submit}</div>}
 
           <div className="space-y-6">
+            <div>
+              <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-2">Your Name</label>
+              <input 
+                id="name" 
+                name="name" 
+                type="text" 
+                value={formData.name} 
+                onChange={handleChange} 
+                className={`w-full bg-gray-800 border ${errors.name ? 'border-red-500' : 'border-gray-600'} rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-teal-500`} 
+                placeholder="Enter your full name" 
+                required 
+              />
+              {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
+            </div>
+            
             <div>
               <label htmlFor="bio" className="block text-sm font-medium text-gray-300 mb-2">Your Bio</label>
               <textarea id="bio" name="bio" value={formData.bio} onChange={handleChange} rows="5" className={`w-full bg-gray-800 border ${errors.bio ? 'border-red-500' : 'border-gray-600'} rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-teal-500`} placeholder="Tell potential clients about your training philosophy, specialties..." required />
@@ -139,7 +189,18 @@ export default function TrainerProfileForm() {
             {errors.gallery && <p className="text-red-400 text-xs mt-1">{errors.gallery}</p>}
             {photoPreviews.length > 0 && (
               <div className="mt-4 grid grid-cols-3 sm:grid-cols-5 gap-3">
-                {photoPreviews.map((src, i) => <img key={i} src={src} alt={`Gallery preview ${i+1}`} className="w-full h-24 object-cover rounded-lg"/>)}
+                {photoPreviews.map((src, i) => (
+                  <div key={i} className="relative">
+                    <img src={src} alt={`Gallery preview ${i+1}`} className="w-full h-24 object-cover rounded-lg"/>
+                    <button 
+                      type="button" 
+                      onClick={() => removePhoto(i)}
+                      className="absolute top-0 right-0 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -179,8 +240,8 @@ export default function TrainerProfileForm() {
           </div>
 
           <div className="pt-5 border-t border-gray-700">
-            <button type="submit" disabled={loading} className="w-full bg-teal-500 hover:bg-teal-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg">
-              {loading ? 'Saving Profile...' : 'Publish Trainer Profile'}
+            <button type="submit" disabled={loading || uploadingImages} className="w-full bg-teal-500 hover:bg-teal-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg">
+              {loading ? 'Saving Profile...' : uploadingImages ? 'Uploading Images...' : 'Publish Trainer Profile'}
             </button>
           </div>
         </form>

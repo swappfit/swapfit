@@ -1,8 +1,25 @@
 // src/controllers/gymController.js
 
 import * as gymService from '../services/gymService.js';
-
+import * as authService from '../services/authService.js'; // Added this import
 import catchAsync from '../utils/catchAsync.js';
+
+// Helper function to get user ID from either JWT or Auth0
+const getUserId = async (req) => {
+  // If we have a user object from authGatekeeper, use it
+  if (req.user?.id) {
+    return req.user.id;
+  }
+  
+  // If we have an Auth0 payload, get the user from the database
+  if (req.auth?.payload) {
+    const user = await authService.getUserByAuth0Id(req.auth.payload.sub);
+    if (!user) throw new Error('User not found for the given Auth0 ID.');
+    return user.id;
+  }
+  
+  throw new Error('Authentication failed: No user identifier found in request.');
+};
 
 // --- Public Controllers ---
 export const getAllGyms = catchAsync(async (req, res) => {
@@ -26,63 +43,84 @@ export const getAssignedTrainers = catchAsync(async (req, res) => {
     res.status(200).json({ success: true, data: trainers });
 });
 
+// ✅ ADD THIS NEW CONTROLLER
+export const getGymsByPlanIds = catchAsync(async (req, res) => {
+  const { planIds } = req.body;
+  if (!planIds || !Array.isArray(planIds)) {
+    return res.status(400).json({ success: false, message: 'planIds must be an array.' });
+  }
+  const gyms = await gymService.getGymsByPlanIds(planIds);
+  res.status(200).json({ success: true, data: gyms });
+});
+
 // --- Member Controllers ---
 export const checkIn = catchAsync(async (req, res) => {
-  const newCheckIn = await gymService.checkIn(req.user.id, req.body.gymId);
+  const userId = await getUserId(req);
+  const newCheckIn = await gymService.checkIn(userId, req.body.gymId);
   res.status(201).json({ success: true, message: 'Checked in successfully.', data: newCheckIn });
 });
 
 export const checkOut = catchAsync(async (req, res) => {
-  const updatedCheckIn = await gymService.checkOut(req.user.id, req.params.checkInId);
+  const userId = await getUserId(req);
+  const updatedCheckIn = await gymService.checkOut(userId, req.params.checkInId);
   res.status(200).json({ success: true, message: 'Checked out successfully.', data: updatedCheckIn });
 });
 
 // --- Owner Controllers ---
 export const updateGym = catchAsync(async (req, res) => {
-  const updatedGym = await gymService.update(req.params.id, req.user.id, req.body);
+  const userId = await getUserId(req);
+  const updatedGym = await gymService.update(req.params.id, userId, req.body);
   res.status(200).json({ success: true, message: 'Gym updated successfully.', data: updatedGym });
 });
 
 export const getOwnerDashboard = catchAsync(async (req, res, next) => {
-  const dashboardData = await gymService.getGymOwnerDashboard(req.user.id);
+  const userId = await getUserId(req);
+  const dashboardData = await gymService.getGymOwnerDashboard(userId);
   res.status(200).json({ success: true, data: dashboardData });
 });
 
-
 export const assignTrainer = catchAsync(async (req, res) => {
-  await gymService.assignTrainer(req.params.gymId, req.user.id, req.body.trainerUserId);
+  const userId = await getUserId(req);
+  await gymService.assignTrainer(req.params.gymId, userId, req.body.trainerUserId);
   res.status(200).json({ success: true, message: 'Trainer assigned successfully.' });
 });
 
 export const unassignTrainer = catchAsync(async (req, res) => {
-  await gymService.unassignTrainer(req.params.gymId, req.user.id, req.body.trainerUserId);
+  const userId = await getUserId(req);
+  await gymService.unassignTrainer(req.params.gymId, userId, req.body.trainerUserId);
   res.status(200).json({ success: true, message: 'Trainer unassigned successfully.' });
 });
 
 export const createGymPlan = catchAsync(async (req, res) => {
+  const userId = await getUserId(req);
   const { gymId } = req.params;
-  const newPlan = await gymService.createPlan(gymId, req.user.id, req.body);
+  const newPlan = await gymService.createPlan(gymId, userId, req.body);
   res.status(201).json({ success: true, message: 'Plan created successfully.', data: newPlan });
 });
 
 export const updateGymPlan = catchAsync(async (req, res) => {
+  const userId = await getUserId(req);
   const { planId } = req.params;
-  const updatedPlan = await gymService.updatePlan(planId, req.user.id, req.body);
+  const updatedPlan = await gymService.updatePlan(planId, userId, req.body);
   res.status(200).json({ success: true, message: 'Plan updated successfully.', data: updatedPlan });
 });
 
 export const deleteGymPlan = catchAsync(async (req, res) => {
+  const userId = await getUserId(req);
   const { planId } = req.params;
-  await gymService.deletePlan(planId, req.user.id);
+  await gymService.deletePlan(planId, userId);
   res.status(200).json({ success: true, message: 'Plan deleted successfully.' });
 });
+
 export const getMyGymProfile = catchAsync(async (req, res) => {
-    const gym = await gymService.getMyGym(req.user.id);
+    const userId = await getUserId(req);
+    const gym = await gymService.getMyGym(userId);
     res.status(200).json({ success: true, data: gym });
 });
 
 export const getGymMembers = catchAsync(async (req, res) => {
   // The owner's ID comes securely from their authentication token.
-  const members = await gymService.getMyMembers(req.user.id);
+  const userId = await getUserId(req);
+  const members = await gymService.getMyMembers(userId);
   res.status(200).json({ success: true, data: members });
 });

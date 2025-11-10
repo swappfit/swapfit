@@ -96,7 +96,21 @@ export const createCheckout = catchAsync(async (req, res) => {
   const userId = getUserId(req);
   const userEmail = getUserEmail(req);
   console.log('[BACKEND] Creating checkout for user:', userId);
-  const result = await cartService.createCartCheckout(userId, userEmail);
-  console.log('[BACKEND] Checkout created:', result);
-  res.status(200).json({ success: true, data: result });
+  
+  try {
+    const checkoutUrl = await cartService.createCartCheckout(userId, userEmail);
+    console.log('[BACKEND] Checkout created:', checkoutUrl);
+    
+    res.status(200).json({ 
+      success: true, 
+      data: { checkoutUrl }
+    });
+  } catch (error) {
+    console.error('[BACKEND] Error creating checkout:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Failed to create checkout',
+      error: error.message
+    });
+  }
 });

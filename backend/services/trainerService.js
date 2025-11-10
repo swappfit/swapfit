@@ -1,3 +1,4 @@
+// src/services/trainerService.js
 
 import { PrismaClient } from '@prisma/client';
 import AppError from '../utils/AppError.js';
@@ -71,9 +72,9 @@ export const getAll = async (queryParams) => {
   }
 };
 
-export const getById = async (userId) => {
+export const getById = async (id) => {
   const profile = await prisma.trainerProfile.findUnique({
-    where: { userId },
+    where: { id },
     include: {
       user: { select: { id: true, email: true } },
       plans: { orderBy: { price: 'asc' } },
@@ -82,6 +83,94 @@ export const getById = async (userId) => {
   });
   if (!profile) throw new AppError('Trainer not found.', 404);
   return profile;
+};
+
+// Add this new service method
+export const getByUserId = async (userId) => {
+  const profile = await prisma.trainerProfile.findUnique({
+    where: { userId },
+    include: {
+      user: { 
+        select: { 
+          id: true, 
+          email: true
+        } 
+      },
+      plans: { 
+        orderBy: { price: 'asc' } 
+      },
+      gyms: { 
+        select: { 
+          id: true, 
+          name: true 
+        } 
+      },
+    },
+  });
+  if (!profile) throw new AppError('Trainer profile not found.', 404);
+  return profile;
+};
+
+// Fixed version of getTrainersByPlanIds
+export const getTrainersByPlanIds = async (planIds) => {
+  if (!planIds || planIds.length === 0) {
+    return [];
+  }
+
+  try {
+    console.log('[Trainer Service] Fetching trainers by plan IDs:', planIds);
+    
+    // Find all trainer plans with the given IDs
+    const trainerPlans = await prisma.trainerPlan.findMany({
+      where: {
+        id: { in: planIds }
+      },
+      include: {
+        trainer: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+              }
+            }
+          }
+        }
+      }
+    });
+
+    console.log('[Trainer Service] Found trainer plans:', trainerPlans.length);
+
+    // Extract unique trainer profiles from the plans
+    const uniqueTrainers = new Map();
+    trainerPlans.forEach(plan => {
+      const trainerId = plan.trainer.id;
+      if (!uniqueTrainers.has(trainerId)) {
+        uniqueTrainers.set(trainerId, {
+          id: plan.trainer.id,
+          user: plan.trainer.user,
+          bio: plan.trainer.bio,
+          experience: plan.trainer.experience,
+          gallery: plan.trainer.gallery,
+          name: plan.trainer.name,
+          specialties: plan.trainer.specialties,
+          certifications: plan.trainer.certifications,
+          phone: plan.trainer.phone,
+          plans: [plan]
+        });
+      } else {
+        // Add this plan to the existing trainer's plans array
+        uniqueTrainers.get(trainerId).plans.push(plan);
+      }
+    });
+
+    const result = Array.from(uniqueTrainers.values());
+    console.log('[Trainer Service] Returning unique trainers:', result.length);
+    return result;
+  } catch (error) {
+    console.error('[Trainer Service] Error fetching trainers by plan IDs:', error);
+    throw new AppError('Failed to fetch trainers.', 500);
+  }
 };
 
 // --- Trainer-Specific Services ---

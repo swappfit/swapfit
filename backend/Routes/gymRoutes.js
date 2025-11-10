@@ -1,8 +1,8 @@
-// Routes/gymRoutes.js
+// src/routes/gymRoutes.js
 
 import express from 'express';
 import * as gymController from '../controllers/gymController.js';
-import jwtAuth from '../middlewares/jwtAuth.js';
+import authGatekeeper from '../middlewares/authGatekeeper.js'; // Changed from jwtAuth to authGatekeeper
 import roleAuth from '../middlewares/roleAuth.js';
 
 // Import all validators
@@ -32,11 +32,14 @@ router.get('/profile/:id', validate(gymIdParamSchema), gymController.getGymById)
 router.get('/:gymId/plans', gymController.getGymPlans); // gymId param validation could be added
 router.get('/:gymId/trainers', gymController.getAssignedTrainers);
 
+// ✅ ADD THIS NEW PUBLIC ROUTE
+router.post('/by-plan-ids', gymController.getGymsByPlanIds);
+
 
 //================================================================
-// APPLY JWT AUTHENTICATION FOR ALL SUBSEQUENT ROUTES
+// APPLY AUTHENTICATION FOR ALL SUBSEQUENT ROUTES
 //================================================================
-router.use(jwtAuth);
+router.use(authGatekeeper); // Changed from jwtAuth to authGatekeeper
 
 
 //================================================================
@@ -75,4 +78,3 @@ router.use('/owner', ownerRouter);
 
 
 export default router;
-
