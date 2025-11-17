@@ -100,14 +100,75 @@ export const getMultiGymTiers = catchAsync(async (req, res) => {
 /**
  * @description Controller to assign a gym to a predefined tier.
  */
+// In your adminController.js
+
+/**
+ * @description Controller to assign a gym to a predefined tier.
+ */
 export const assignGymToTier = catchAsync(async (req, res) => {
-    const { gymId } = req.params;
-    const { tierName } = req.body; // e.g., { tierName: "Silver" }
+    console.log('🏷️ [Admin Controller] assignGymToTier - Starting execution');
+    console.log('🏷️ [Admin Controller] Request user:', req.user);
+    console.log('🏷️ [Admin Controller] Request params:', req.params);
+    console.log('🏷️ [Admin Controller] Request body:', req.body);
     
-    // Use the admin service to assign the tier
-    const updatedGym = await adminService.assignGymToTier(gymId, tierName);
-    
-    res.status(200).json({ success: true, message: `Gym assigned to ${tierName} tier.`, data: updatedGym });
+    try {
+        const { gymId } = req.params;
+        const { tierName } = req.body; // e.g., { tierName: "Platinum" }
+        
+        console.log('🏷️ [Admin Controller] Extracted gymId:', gymId);
+        console.log('🏷️ [Admin Controller] Extracted tierName:', tierName);
+        
+        if (!gymId) {
+            console.error('🏷️ [Admin Controller] Missing gymId in params');
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Gym ID is required' 
+            });
+        }
+        
+        if (!tierName) {
+            console.error('🏷️ [Admin Controller] Missing tierName in body');
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Tier name is required' 
+            });
+        }
+        
+        console.log('🏷️ [Admin Controller] Calling adminService.assignGymToTier()');
+        const startTime = Date.now();
+        
+        const updatedGym = await adminService.assignGymToTier(gymId, tierName);
+        
+        const duration = Date.now() - startTime;
+        console.log(`🏷️ [Admin Controller] Service completed in ${duration}ms`);
+        console.log('🏷️ [Admin Controller] Service returned gym:', updatedGym ? updatedGym.name : 'null/undefined');
+        
+        if (!updatedGym) {
+            console.error('🏷️ [Admin Controller] Service returned null/undefined');
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Failed to assign tier: Service returned null' 
+            });
+        }
+        
+        console.log('🏷️ [Admin Controller] Sending successful response');
+        res.status(200).json({ 
+            success: true, 
+            message: `Gym assigned to ${tierName} tier.`, 
+            data: updatedGym 
+        });
+    } catch (error) {
+        console.error('🏷️ [Admin Controller] Error in assignGymToTier:', error);
+        console.error('🏷️ [Admin Controller] Error stack:', error.stack);
+        
+        if (!res.headersSent) {
+            res.status(500).json({ 
+                success: false, 
+                message: 'Failed to assign tier', 
+                error: error.message 
+            });
+        }
+    }
 });
 
 /**
@@ -191,3 +252,35 @@ export const getUserStats = catchAsync(async (req, res) => {
     const stats = await adminService.getUserStats();
     res.status(200).json({ success: true, data: stats });
 });;
+/**
+ * @description Controller to get gyms that have opted in for multi-gym access
+ */
+export const getGymsForBadging = catchAsync(async (req, res) => {
+    console.log('🏋️ [Admin Controller] getGymsForBadging - Starting execution');
+    console.log('🏋️ [Admin Controller] Request user:', req.user);
+    
+    try {
+        console.log('🏋️ [Admin Controller] Calling adminService.getGymsForBadging()');
+        const gyms = await adminService.getGymsForBadging();
+        console.log('🏋️ [Admin Controller] Service returned gyms:', gyms ? `${gyms.length} gyms` : 'null/undefined');
+        
+        if (!gyms) {
+            console.error('🏋️ [Admin Controller] Service returned null/undefined');
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Failed to fetch gyms: Service returned null' 
+            });
+        }
+        
+        console.log('🏋️ [Admin Controller] Sending successful response');
+        res.status(200).json({ success: true, data: gyms });
+    } catch (error) {
+        console.error('🏋️ [Admin Controller] Error in getGymsForBadging:', error);
+        console.error('🏋️ [Admin Controller] Error stack:', error.stack);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Failed to fetch gyms', 
+            error: error.message 
+        });
+    }
+});

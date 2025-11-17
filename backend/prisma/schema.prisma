@@ -51,6 +51,7 @@ model User {
   fcmTokens             FcmToken[]
   paymentMethods        PaymentMethod[]
   likes Like[]
+  verifiedCheckIns      CheckIn[] @relation("CheckInVerifier")  
 }
 
 model MemberProfile {
@@ -109,6 +110,7 @@ model Gym {
   schedules         Schedule[]
   status            String           @default("pending")
   badges            Json?
+  acceptsMultigym   Boolean?         @default(false) // <-- NEW FIELD: Gym owner's opt-in
   dailyPassPrice    Float?
   weeklyPassPrice   Float?
   checkIns          CheckIn[]
@@ -187,6 +189,9 @@ model CheckIn {
   gymId    String
   checkIn  DateTime  @default(now())
   checkOut DateTime?
+  status               String    @default("pending") 
+  verifiedByGymStaffId String?  
+  verifiedByGymStaff   User?     @relation("CheckInVerifier", fields: [verifiedByGymStaffId], references: [id])
 }
 
 model Schedule {

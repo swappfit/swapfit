@@ -124,3 +124,38 @@ export const getGymMembers = catchAsync(async (req, res) => {
   const members = await gymService.getMyMembers(userId);
   res.status(200).json({ success: true, data: members });
 });
+// Add these new controller functions
+export const getPendingCheckIns = async (req, res, next) => {
+    try {
+        const ownerId = req.user.id;
+        const gym = await prisma.gym.findFirst({ where: { managerId: ownerId } });
+        if (!gym) return res.status(404).json({ message: 'Gym not found' });
+
+        const pendingCheckIns = await gymService.getPendingCheckIns(gym.id);
+        res.status(200).json(pendingCheckIns);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const verifyCheckIn = async (req, res, next) => {
+    try {
+        const { checkInId } = req.params;
+        const verifierId = req.user.id;
+        const updatedCheckIn = await gymService.updateCheckInStatus(checkInId, verifierId, 'verified');
+        res.status(200).json(updatedCheckIn);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const rejectCheckIn = async (req, res, next) => {
+    try {
+        const { checkInId } = req.params;
+        const verifierId = req.user.id;
+        const updatedCheckIn = await gymService.updateCheckInStatus(checkInId, verifierId, 'rejected');
+        res.status(200).json(updatedCheckIn);
+    } catch (error) {
+        next(error);
+    }
+};

@@ -9,12 +9,13 @@ import { UserManagement } from './components/dashboard/user-management';
 import { Schedules } from './components/dashboard/schedules';
 import { PaymentsPlans } from './components/dashboard/payments-plans';
 import { Reports } from './components/dashboard/reports';
-import { GymApprovals } from './components/dashboard/gym-approvals';
+import { GymBadgingManagement } from './components/dashboard/gym-approvals'; // Changed from GymApprovals to GymBadgingManagement
 import { ChallengesManagement } from './components/dashboard/challenges-management';
 import { BadgeManager } from './components/dashboard/badge-manager';
 import { MemberNotifications } from './components/dashboard/member-notifications';
 import { AccessLogs } from './components/dashboard/access-logs';
 import { SettingsPage } from './components/dashboard/settings-page';
+import { Toaster } from 'sonner'; // Added sonner import
 import './App.css';
 
 function App() {
@@ -69,7 +70,7 @@ function App() {
                 <Route path="/schedules" element={<Schedules />} />
                 <Route path="/payments-plans" element={<PaymentsPlans />} />
                 <Route path="/reports" element={<Reports />} />
-                <Route path="/gym-approvals" element={<GymApprovals />} />
+                <Route path="/gym-approvals" element={<GymBadgingManagement />} /> {/* Updated component name */}
                 <Route path="/challenges" element={<ChallengesManagement />} />
                 <Route path="/badges" element={<BadgeManager />} />
                 <Route path="/notifications" element={<MemberNotifications />} />
@@ -79,6 +80,14 @@ function App() {
             </div>
           </main>
         </div>
+        
+        {/* Added Toaster component for sonner notifications */}
+        <Toaster 
+          position="top-right"
+          richColors
+          closeButton
+          duration={4000}
+        />
       </div>
     </Router>
   );

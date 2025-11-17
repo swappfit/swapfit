@@ -14,14 +14,17 @@ import {
   Calendar, // Schedules
   TrendingUp, // Reports
   Shield, // Access Logs
-  CreditCard // Payments & Plans
+  CreditCard, // Payments & Plans
+  CheckCircle // Added for Gym Approvals
 } from "lucide-react"
 import { Button } from "../ui/button"
 import { cn } from "../../lib/utils"
 import { useAuth } from '../../context/AuthContext';
+
 const menuItems = [
   { href: "/", label: "Dashboard", icon: Home },
-  { href: "/user-management", label: "User Management", icon: Users }, // Combined: members, trainers, gym approvals
+  { href: "/user-management", label: "User Management", icon: Users }, // Combined: members, trainers
+  { href: "/gym-approvals", label: "Gym Approvals", icon: CheckCircle }, // Added this line
   { href: "/schedules", label: "Schedules", icon: Calendar },
   { href: "/payments-plans", label: "Payments & Plans", icon: CreditCard }, // Combined: payments, plans
   { href: "/reports", label: "Reports", icon: TrendingUp },

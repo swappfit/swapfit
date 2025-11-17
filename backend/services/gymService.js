@@ -68,32 +68,26 @@ export const update = async (gymId, ownerId, updateData) => {
 export const checkIn = async (userId, gymId) => {
     // 1. Check if the user is already checked into THIS specific gym.
     const existingCheckIn = await prisma.checkIn.findFirst({ 
-        where: { userId, gymId, checkOut: null } 
+        where: { userId, gymId, checkOut: null, status: { in: ['pending', 'verified'] } } 
     });
     if (existingCheckIn) {
         throw new AppError('You are already checked in to this gym.', 400);
     }
 
-    // 2. Check for a valid subscription. It can be EITHER a gym-specific plan OR a multi-gym pass.
-
-    // Check for a gym-specific subscription
+    // 2. Check for a valid subscription (either gym-specific OR multi-gym)
     const gymSubscription = await prisma.subscription.findFirst({
         where: { userId, status: 'active', gymPlan: { gymId } },
     });
 
-    // Check for a multi-gym pass. We need to find the gym's tier first.
+    let multiGymSubscription = null;
     const gym = await prisma.gym.findUnique({ where: { id: gymId }, select: { badges: true } });
     
-    let multiGymSubscription = null;
     if (gym?.badges && gym.badges.length > 0) {
-        // Find if the user has an active subscription for any of the gym's tier names
         multiGymSubscription = await prisma.subscription.findFirst({
             where: {
                 userId,
                 status: 'active',
-                multiGymTier: {
-                    name: { in: gym.badges } // Check if the tier name is in the gym's badges array
-                }
+                multiGymTier: { name: { in: gym.badges } }
             },
             include: { multiGymTier: { select: { name: true } } }
         });
@@ -104,10 +98,28 @@ export const checkIn = async (userId, gymId) => {
         throw new AppError('No active subscription found for this gym.', 403);
     }
 
-    // 4. If we reach here, the user is authorized. Create the check-in record.
-    const newCheckIn = await prisma.checkIn.create({ data: { userId, gymId } });
+    // 4. Create a PENDING check-in record for ALL users
+    const newCheckIn = await prisma.checkIn.create({ 
+        data: { 
+            userId, 
+            gymId,
+            status: 'pending' // <-- KEY CHANGE: Always create as pending
+        } 
+    });
+
+    // 5. Emit a real-time event to the gym's staff room
+    const { io } = await import('../app.js');
+    io.to(`gym_${gymId}`).emit('newPendingCheckIn', {
+        checkInId: newCheckIn.id,
+        userId: newCheckIn.userId,
+        gymId: newCheckIn.gymId,
+        checkInTime: newCheckIn.checkIn,
+        // You can include user details here if needed for the gym's UI
+    });
+
+    const passType = gymSubscription ? 'Gym Plan' : multiGymSubscription.multiGymTier.name;
+    console.log(`[GymService] User ${userId} requested check-in to gym ${gymId} with pass: ${passType}. Status: pending.`);
     
-    console.log(`[GymService] User ${userId} checked into gym ${gymId} with pass: ${gymSubscription ? 'Gym Plan' : multiGymSubscription.multiGymTier.name}`);
     return newCheckIn;
 };
 export const checkOut = async (userId, checkInId) => {
@@ -250,4 +262,57 @@ export const getGymsByPlanIds = async (planIds) => {
     return acc;
   }, []);
   return uniqueGyms;
+};
+// Add these new service functions
+export const getPendingCheckIns = async (gymId) => {
+    return await prisma.checkIn.findMany({
+        where: {
+            gymId,
+            status: 'pending'
+        },
+        include: {
+            user: {
+                select: {
+                    id: true,
+                    email: true,
+                    memberProfile: {
+                        select: { name: true } // Add photo if you have it
+                    }
+                }
+            }
+        },
+        orderBy: { checkIn: 'desc' }
+    });
+};
+
+export const updateCheckInStatus = async (checkInId, verifierId, status) => {
+    // First, verify the gym staff owns the gym for this check-in
+    const checkIn = await prisma.checkIn.findUnique({
+        where: { id: checkInId },
+        include: { gym: { select: { managerId: true } } }
+    });
+
+    if (!checkIn) throw new AppError('Check-in not found.', 404);
+    if (checkIn.gym.managerId !== verifierId) {
+        throw new AppError('You are not authorized to verify this check-in.', 403);
+    }
+
+    // Update the check-in record
+    const updatedCheckIn = await prisma.checkIn.update({
+        where: { id: checkInId },
+        data: {
+            status: status,
+            verifiedByGymStaffId: verifierId
+        }
+    });
+
+    // Emit a real-time event back to the user
+    const { io } = await import('../app.js');
+    io.to(`user_${updatedCheckIn.userId}`).emit('checkInStatusUpdated', {
+        checkInId: updatedCheckIn.id,
+        status: updatedCheckIn.status,
+        gymId: updatedCheckIn.gymId
+    });
+
+    return updatedCheckIn;
 };

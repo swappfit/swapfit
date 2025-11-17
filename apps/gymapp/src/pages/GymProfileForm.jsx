@@ -16,6 +16,9 @@ export default function GymProfileForm() {
     plans: [{ name: '', price: '', duration: 'month' }],
   });
 
+  // NEW STATE for the Multigym checkbox
+  const [acceptsMultigym, setAcceptsMultigym] = useState(false);
+
   const navigate = useNavigate();
   const { setAuthData } = useAuth();
   const [photoPreviews, setPhotoPreviews] = useState([]);
@@ -174,7 +177,9 @@ export default function GymProfileForm() {
         facilities: formData.facilities,
         plans: formData.plans
           .filter(plan => plan.name.trim() && plan.duration.trim() && plan.price)
-          .map(p => ({ ...p, price: parseFloat(p.price) }))
+          .map(p => ({ ...p, price: parseFloat(p.price) })),
+        // Include the acceptsMultigym value in the payload
+        acceptsMultigym: acceptsMultigym,
       };
       
       const response = await authService.createGymProfile(apiPayload);
@@ -288,6 +293,25 @@ export default function GymProfileForm() {
               ))}
             </div>
             {errors.facilities && <p className="text-red-400 text-xs mt-1">{errors.facilities}</p>}
+          </div>
+
+          {/* NEW SECTION: Multigym Opt-In */}
+          <div className="p-4 bg-gray-800 border border-gray-700 rounded-lg">
+            <label className="flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                name="acceptsMultigym"
+                checked={acceptsMultigym}
+                onChange={(e) => setAcceptsMultigym(e.target.checked)}
+                className="h-5 w-5 text-teal-500 bg-gray-700 border-gray-600 rounded focus:ring-teal-500 focus:ring-2"
+              />
+              <span className="ml-3 text-white">
+                Do you want to accept members with Multigym Passes? (Admin approval required)
+              </span>
+            </label>
+            <p className="text-gray-400 text-sm mt-2">
+              If you check this box, our team will review your gym to assign it a tier (Silver, Gold, or Platinum), allowing members with corresponding passes to access your facility.
+            </p>
           </div>
 
           <div>

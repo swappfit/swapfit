@@ -73,6 +73,11 @@ ownerRouter.post('/:gymId/plans', validate(createPlanSchema), gymController.crea
 ownerRouter.put('/plans/:planId', validate(updatePlanSchema), gymController.updateGymPlan);
 ownerRouter.delete('/plans/:planId', validate(planIdParamSchema), gymController.deleteGymPlan);
 
+// --- Check-in Verification (for ALL check-ins) ---
+ownerRouter.get('/check-ins/pending', gymController.getPendingCheckIns);
+ownerRouter.patch('/check-ins/:checkInId/verify', gymController.verifyCheckIn);
+ownerRouter.patch('/check-ins/:checkInId/reject', gymController.rejectCheckIn);
+
 // Mount the protected owner router
 router.use('/owner', ownerRouter);
 

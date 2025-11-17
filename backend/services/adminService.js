@@ -9,7 +9,7 @@ export const getPendingGyms = async () => {
         include: { manager: { select: { email: true } } }
     });
 };
-
+    
 export const updateGymStatus = async (gymId, status) => {
     if (!['approved', 'rejected'].includes(status)) {
         throw new AppError('Invalid status provided. Must be "approved" or "rejected".', 400);
@@ -29,16 +29,17 @@ export const updateGymBadges = async (gymId, badges) => {
     }
     const gym = await prisma.gym.findUnique({ where: { id: gymId }});
     if (!gym) throw new AppError('Gym not found.', 404);
-    if (gym.status !== 'approved') {
-        throw new AppError('Badges can only be added to approved gyms.', 400);
-    }
+    // Note: I'm removing the status check here as well, as per your feedback.
+    // If you want to add it back later, you can uncomment the following lines.
+    // if (gym.status !== 'approved') {
+    //     throw new AppError('Badges can only be added to approved gyms.', 400);
+    // }
 
     return await prisma.gym.update({
         where: { id: gymId },
         data: { badges: badges },
     });
 };
-
 export const getAdminDashboardStats = async () => {
   const [
     totalUsers,
@@ -326,24 +327,95 @@ export const getMultiGymTiers = async () => {
     ];
 };
 
+// In your adminService.js
+
 export const assignGymToTier = async (gymId, tierName) => {
-    const validTiers = ['Silver', 'Gold', 'Platinum'];
-    if (!validTiers.includes(tierName)) {
-        throw new AppError('Invalid tier name. Must be Silver, Gold, or Platinum.', 400);
-    }
+    console.log('🏷️ [Admin Service] assignGymToTier - Starting execution');
+    console.log('🏷️ [Admin Service] gymId:', gymId);
+    console.log('🏷️ [Admin Service] tierName:', tierName);
     
-    const gym = await prisma.gym.findUnique({ where: { id: gymId }});
-    if (!gym) throw new AppError('Gym not found.', 404);
-    if (gym.status !== 'approved') {
-        throw new AppError('Tiers can only be assigned to approved gyms.', 400);
+    try {
+        // Validate tier name
+        const validTiers = ['Silver', 'Gold', 'Platinum'];
+        if (!validTiers.includes(tierName)) {
+            console.error('🏷️ [Admin Service] Invalid tier name:', tierName);
+            throw new AppError('Invalid tier name. Must be Silver, Gold, or Platinum.', 400);
+        }
+        console.log('🏷️ [Admin Service] Tier name is valid');
+        
+        // Check if gym exists
+        console.log('🏷️ [Admin Service] Checking if gym exists...');
+        const gym = await prisma.gym.findUnique({ 
+            where: { id: gymId },
+            select: {
+                id: true,
+                name: true,
+                status: true,
+                badges: true
+            }
+        });
+        
+        if (!gym) {
+            console.error('🏷️ [Admin Service] Gym not found with ID:', gymId);
+            throw new AppError('Gym not found.', 404);
+        }
+        
+        console.log('🏷️ [Admin Service] Found gym:', gym.name);
+        console.log('🏷️ [Admin Service] Current gym status:', gym.status);
+        console.log('🏷️ [Admin Service] Current gym badges:', gym.badges);
+        
+        console.log('🏷️ [Admin Service] Gym is approved, proceeding with tier assignment');
+        
+        // Update gym with new tier
+        console.log('🏷️ [Admin Service] Updating gym badges...');
+        const updateData = { badges: [tierName] };
+        console.log('🏷️ [Admin Service] Update data:', updateData);
+        
+        const updatedGym = await prisma.gym.update({
+            where: { id: gymId },
+            data: updateData,
+            include: {
+                manager: {
+                    select: {
+                        id: true,
+                        email: true,
+                        memberProfile: {
+                            select: {
+                                name: true
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        
+        console.log('🏷️ [Admin Service] Gym updated successfully');
+        console.log('🏷️ [Admin Service] Updated gym badges:', updatedGym.badges);
+        
+        // Return the updated gym with tier information
+        const result = {
+            id: updatedGym.id,
+            name: updatedGym.name,
+            address: updatedGym.address,
+            status: updatedGym.status,
+            acceptsMultigym: updatedGym.acceptsMultigym,
+            tier: tierName, // Explicitly set the tier for clarity
+            manager: updatedGym.manager,
+            photos: updatedGym.photos,
+            facilities: updatedGym.facilities,
+            createdAt: updatedGym.createdAt
+        };
+        
+        console.log('🏷️ [Admin Service] Returning result:', result);
+        return result;
+    } catch (error) {
+        console.error('🏷️ [Admin Service] Error in assignGymToTier:', error);
+        console.error('🏷️ [Admin Service] Error stack:', error.stack);
+        
+        // Re-throw the error to be caught by the controller
+        throw error;
     }
-
-    return await prisma.gym.update({
-        where: { id: gymId },
-        data: { badges: [tierName] },
-    });
 };
-
 // Get users with their subscriptions
 export const getUsersWithSubscriptions = async () => {
   const users = await prisma.user.findMany({
@@ -749,3 +821,88 @@ export const getMultiGymSubscriptions = async () => {
     throw error;
   }
 }
+
+// In your services/adminService.js
+
+export const getGymsForBadging = async () => {
+    console.log('🏋️ [Admin Service] getGymsForBadging - Starting database query');
+    
+    try {
+        console.log('🏋️ [Admin Service] Querying gyms with acceptsMultigym=true');
+        
+        // Fetch gyms that have opted in for multi-gym access (acceptsMultigym: true)
+        const gyms = await prisma.gym.findMany({
+            where: {
+                acceptsMultigym: true
+            },
+            include: {
+                manager: {
+                    select: {
+                        id: true,
+                        email: true,
+                        memberProfile: {
+                            select: {
+                                name: true
+                            }
+                        }
+                    }
+                }
+            },
+            orderBy: {
+                id: 'desc'
+            }
+        });
+        
+        console.log('🏋️ [Admin Service] Database query completed');
+        console.log('🏋️ [Admin Service] Raw gyms from database:', gyms ? `${gyms.length} gyms` : 'null/undefined');
+        
+        if (!gyms) {
+            console.error('🏋️ [Admin Service] Database query returned null');
+            return [];
+        }
+        
+        console.log('🏋️ [Admin Service] Processing gyms data...');
+        
+        // Transform the data to include tier information from badges
+        const processedGyms = gyms.map(gym => {
+            console.log('🏋️ [Admin Service] Processing gym:', gym.id, gym.name);
+            
+            // Extract tier from badges if it exists
+            let tier = null;
+            if (gym.badges && gym.badges.length > 0) {
+                console.log('🏋️ [Admin Service] Gym badges:', gym.badges);
+                
+                // Check if any badge matches a tier
+                const tierBadge = gym.badges.find(badge => 
+                    ['Silver', 'Gold', 'Platinum'].includes(badge)
+                );
+                tier = tierBadge || null;
+                console.log('🏋️ [Admin Service] Extracted tier:', tier);
+            } else {
+                console.log('🏋️ [Admin Service] No badges found for gym');
+            }
+
+            return {
+                id: gym.id,
+                name: gym.name,
+                address: gym.address,
+                status: gym.status,
+                acceptsMultigym: gym.acceptsMultigym,
+                tier: tier,
+                manager: gym.manager,
+                photos: gym.photos,
+                facilities: gym.facilities,
+                createdAt: gym.createdAt
+            };
+        });
+        
+        console.log('🏋️ [Admin Service] All gyms processed successfully');
+        console.log('🏋️ [Admin Service] Returning processed gyms:', processedGyms.length);
+        
+        return processedGyms;
+    } catch (error) {
+        console.error('🏋️ [Admin Service] Error in getGymsForBadging:', error);
+        console.error('🏋️ [Admin Service] Error stack:', error.stack);
+        throw error;
+    }
+};
