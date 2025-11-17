@@ -119,10 +119,15 @@ export const selectRole = async ({ userId, role }) => {
   return { role: user.role, redirectTo };
 };
 
+// src/services/authService.js
+
+// ... (all the code above the function, like imports, prisma client, chargebee config, etc.)
+
 export const createProfile = async ({ userId, profileType, data, authPayload }) => {
   try {
     switch (profileType) {
       case 'MEMBER': {
+        // ... (MEMBER case logic remains unchanged)
         if (!authPayload || !authPayload.sub) { 
           throw new AppError('MEMBER profile creation requires a valid Auth0 token payload.', 401); 
         }
@@ -146,35 +151,32 @@ export const createProfile = async ({ userId, profileType, data, authPayload }) 
       }
 
       case 'TRAINER': {
+        // ... (TRAINER case logic remains unchanged)
         const { plans: trainerPlansData, gallery, ...trainerData } = data;
         
-        // First, create the trainer profile without Chargebee operations
         const profile = await prisma.$transaction(async (tx) => {
           const profile = await tx.trainerProfile.upsert({
             where: { userId },
             update: { 
               ...trainerData, 
-              gallery: gallery || [] // Ensure gallery is an array
+              gallery: gallery || []
             },
             create: { 
               userId, 
               ...trainerData, 
-              gallery: gallery || [] // Ensure gallery is an array
+              gallery: gallery || []
             },
             include: { user: { select: { email: true } } }
           });
 
-          // Delete existing plans
           await tx.trainerPlan.deleteMany({ where: { trainerProfileId: profile.id } });
 
-          // Filter valid plans
           const validPlans = (trainerPlansData || []).filter(p =>
             p.name && p.name.trim() !== '' &&
             p.duration && p.duration.trim() !== '' &&
             p.price != null && p.price !== '' && !isNaN(parseFloat(p.price)) && parseFloat(p.price) > 0
           );
 
-          // Create plans in database without Chargebee IDs first
           const createdPlans = [];
           if (validPlans.length > 0) {
             for (const planData of validPlans) {
@@ -184,7 +186,7 @@ export const createProfile = async ({ userId, profileType, data, authPayload }) 
                   name: planData.name, 
                   price: parseFloat(planData.price),
                   duration: planData.duration, 
-                  chargebeePlanId: null, // Will be updated later
+                  chargebeePlanId: null,
                 },
               });
               createdPlans.push({ plan, planData });
@@ -194,31 +196,24 @@ export const createProfile = async ({ userId, profileType, data, authPayload }) 
           return { profile, createdPlans };
         });
 
-        // Now perform Chargebee operations outside the transaction
         const updatedPlans = [];
         for (const { plan, planData } of profile.createdPlans) {
           try {
-            // Generate a unique ID for this price attempt
             const timestamp = Date.now();
             const random = Math.floor(Math.random() * 1000);
             
-            // Use slugify for the plan name in the item ID
             const chargebeeItemId = `trainer-${profile.profile.id}-${slugify(planData.name)}-${timestamp}-${random}`;
             const chargebeeItemName = `${profile.profile.user.email} - ${planData.name}`;
 
-            // Create or get Chargebee item
             const chargebeeProduct = await findOrCreateChargebeeItem(chargebeeItemId, chargebeeItemName);
             
-            // Wait for propagation
             await new Promise(resolve => setTimeout(resolve, 1000));
 
-            // Use slugify for the price ID as well
             const chargebeePriceId = `${chargebeeItemId}-${slugify(planData.duration.toLowerCase())}`;
 
-            // Create Chargebee price - use the price ID as the name to ensure uniqueness
             const chargebeePriceResult = await createChargebeeItemPrice({
               id: chargebeePriceId,
-              name: chargebeePriceId, // Use the price ID as the name to ensure uniqueness
+              name: chargebeePriceId,
               item_id: chargebeeProduct.id,
               price: Math.round(parseFloat(planData.price) * 100),
               period: 1,
@@ -226,7 +221,6 @@ export const createProfile = async ({ userId, profileType, data, authPayload }) 
               currency_code: "INR"
             });
 
-            // Update the plan with Chargebee ID
             const updatedPlan = await prisma.trainerPlan.update({
               where: { id: plan.id },
               data: { chargebeePlanId: chargebeePriceResult.id }
@@ -235,7 +229,6 @@ export const createProfile = async ({ userId, profileType, data, authPayload }) 
             updatedPlans.push(updatedPlan);
           } catch(e) {
             console.error(`[Chargebee FAILURE] Failed to create Trainer Plan Price for '${planData.name}'. Error: ${e.message}`);
-            // Keep the original plan without Chargebee ID
             updatedPlans.push(plan);
           }
         }
@@ -243,28 +236,28 @@ export const createProfile = async ({ userId, profileType, data, authPayload }) 
         return { ...profile.profile, plans: updatedPlans };
       }
 
+      // --- MODIFIED GYM_OWNER CASE ---
       case 'GYM_OWNER': {
-        const { plans: gymPlansData, ...gymData } = data;
+        // MODIFIED: Destructure the new 'acceptsMultigym' field from the incoming data
+        const { plans: gymPlansData, acceptsMultigym, ...gymData } = data;
         
-        // First, create the gym without Chargebee operations
         const gym = await prisma.$transaction(async (tx) => {
           const gym = await tx.gym.upsert({
             where: { managerId: userId },
-            update: gymData,
-            create: { ...gymData, managerId: userId },
+            // MODIFIED: Include the 'acceptsMultigym' field in the update payload
+            update: { ...gymData, acceptsMultigym },
+            // MODIFIED: Include the 'acceptsMultigym' field in the create payload
+            create: { ...gymData, managerId: userId, acceptsMultigym },
           });
 
-          // Delete existing plans
           await tx.gymPlan.deleteMany({ where: { gymId: gym.id } });
 
-          // Filter valid plans
           const validPlans = (gymPlansData || []).filter(p =>
             p.name && p.name.trim() !== '' &&
             p.duration && p.duration.trim() !== '' &&
             p.price != null && p.price !== '' && !isNaN(parseFloat(p.price)) && parseFloat(p.price) > 0
           );
 
-          // Create plans in database without Chargebee IDs first
           const createdPlans = [];
           if (validPlans.length > 0) {
             for (const planData of validPlans) {
@@ -284,31 +277,25 @@ export const createProfile = async ({ userId, profileType, data, authPayload }) 
           return { gym, createdPlans };
         });
 
-        // Now perform Chargebee operations outside the transaction
+        // This part of the logic for Chargebee remains completely unchanged
         const updatedPlans = [];
         for (const { plan, planData } of gym.createdPlans) {
           try {
-            // Generate a unique ID for this price attempt
             const timestamp = Date.now();
             const random = Math.floor(Math.random() * 1000);
             
-            // Use slugify for the plan name in the item ID
             const chargebeeItemId = `gym-${gym.gym.id}-${slugify(planData.name)}-${timestamp}-${random}`;
             const chargebeeItemName = `${gym.gym.name} - ${planData.name}`;
 
-            // Create or get Chargebee item
             const chargebeeProduct = await findOrCreateChargebeeItem(chargebeeItemId, chargebeeItemName);
             
-            // Wait for propagation
             await new Promise(resolve => setTimeout(resolve, 1000));
 
-            // Use slugify for the price ID as well
             const chargebeePriceId = `${chargebeeItemId}-${slugify(planData.duration.toLowerCase())}`;
 
-            // Create Chargebee price - use the price ID as the name to ensure uniqueness
             const chargebeePriceResult = await createChargebeeItemPrice({
               id: chargebeePriceId,
-              name: chargebeePriceId, // Use the price ID as the name to ensure uniqueness
+              name: chargebeePriceId,
               item_id: chargebeeProduct.id,
               price: Math.round(parseFloat(planData.price) * 100),
               period: 1,
@@ -316,7 +303,6 @@ export const createProfile = async ({ userId, profileType, data, authPayload }) 
               currency_code: "INR"
             });
 
-            // Update the plan with Chargebee ID
             const updatedPlan = await prisma.gymPlan.update({
               where: { id: plan.id },
               data: { chargebeePlanId: chargebeePriceResult.id }
@@ -325,14 +311,16 @@ export const createProfile = async ({ userId, profileType, data, authPayload }) 
             updatedPlans.push(updatedPlan);
           } catch(e) {
             console.error(`[Chargebee CRITICAL FAILURE] Could not link Gym Plan Price for '${planData.name}'. Error: ${e.message}`);
-            // Keep the original plan without Chargebee ID
             updatedPlans.push(plan);
           }
         }
 
         return { ...gym.gym, plans: updatedPlans };
       }
+      // --- END OF MODIFIED CASE ---
+
       case 'MERCHANT':
+        // ... (MERCHANT case logic remains unchanged)
         return await prisma.merchantProfile.upsert({
           where: { userId }, 
           update: data, 
@@ -350,6 +338,7 @@ export const createProfile = async ({ userId, profileType, data, authPayload }) 
     throw error;
   }
 };
+
 
 // --- Auth0 Specific Services ---
 export const verifyAuth0User = async (auth0Payload) => {

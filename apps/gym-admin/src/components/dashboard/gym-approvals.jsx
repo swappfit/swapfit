@@ -1,291 +1,237 @@
-import React, { useEffect, useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card"
-import { Button } from "../ui/button"
-import { Badge } from "../ui/badge"
-import { Search, Check, X, Eye, MapPin, Phone, Mail, Building2, Users, Calendar } from "lucide-react"
-import { Avatar, AvatarFallback } from "../ui/avatar"
-import { Input } from "../ui/input"
+// src/components/dashboard/gym-approvals.jsx
+import React, { useState, useEffect } from 'react';
+import { toast } from 'sonner';
+import { getGymsForBadging, getMultiGymTiers, assignGymToTier } from '../../api/adminService';
 
-const pendingApprovals = []
+export function GymBadgingManagement() {
+  const [gyms, setGyms] = useState([]);
+  const [tiers, setTiers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedGym, setSelectedGym] = useState(null);
+  const [selectedTier, setSelectedTier] = useState('');
+  const [assigningTier, setAssigningTier] = useState(false);
 
-export function GymApprovals() {
-  const [searchTerm, setSearchTerm] = useState("")
-  const [selectedStatus, setSelectedStatus] = useState("all")
-  const [selectedGym, setSelectedGym] = useState(null)
-  const [approvals, setApprovals] = useState(pendingApprovals)
-
+  // Fetch gyms and tiers on component mount
   useEffect(() => {
-    let alive = true
-    import("../../lib/api.js").then(({ listPendingGyms }) =>
-      listPendingGyms()
-        .then((data) => {
-          if (!alive) return
-          const mapped = (data || []).map((g) => ({
-            id: g.id,
-            gymName: g.name,
-            owner: g.manager?.email || 'Owner',
-            email: g.manager?.email || '-',
-            phone: '-',
-            address: g.address || '-',
-            description: '—',
-            memberCapacity: 0,
-            facilities: Array.isArray(g.facilities) ? g.facilities : [],
-            submittedDate: new Date().toISOString().slice(0,10),
-            status: g.status || 'Pending',
-            documents: [],
-            avatar: (g.name || 'GY')[0] + (g.name || 'M')[1] || 'GY',
-          }))
-          setApprovals(mapped)
-        })
-        .catch(() => {})
-    )
-    return () => { alive = false }
-  }, [])
+    console.log('🏋️ [Gym Badging] Component mounted, fetching data...');
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        
+        // Fetch gyms that have opted in for multi-gym access
+        console.log('🏋️ [Gym Badging] Fetching gyms...');
+        const gymsResponse = await getGymsForBadging();
+        console.log('🏋️ [Gym Badging] Gyms response:', gymsResponse);
+        
+        if (gymsResponse.success) {
+          setGyms(gymsResponse.data);
+          console.log('🏋️ [Gym Badging] Gyms set in state:', gymsResponse.data);
+        } else {
+          console.error('🏋️ [Gym Badging] Failed to fetch gyms:', gymsResponse.message);
+          toast.error(gymsResponse.message || 'Failed to fetch gyms.');
+        }
+        
+        // Fetch available tiers
+        console.log('🏆 [Gym Badging] Fetching tiers...');
+        const tiersResponse = await getMultiGymTiers();
+        console.log('🏆 [Gym Badging] Tiers response:', tiersResponse);
+        
+        if (tiersResponse.success) {
+          setTiers(tiersResponse.data);
+          console.log('🏆 [Gym Badging] Tiers set in state:', tiersResponse.data);
+        } else {
+          console.error('🏆 [Gym Badging] Failed to fetch tiers:', tiersResponse.message);
+          toast.error(tiersResponse.message || 'Failed to fetch tiers.');
+        }
+      } catch (error) {
+        console.error('🏋️ [Gym Badging] Failed to fetch data:', error);
+        toast.error('An error occurred while fetching data. Please try again.');
+      } finally {
+        setLoading(false);
+        console.log('🏋️ [Gym Badging] Data fetching completed');
+      }
+    };
 
-  const filteredApprovals = approvals.filter(approval => {
-    const matchesSearch = approval.gymName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         approval.owner.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = selectedStatus === "all" || approval.status === selectedStatus
-    return matchesSearch && matchesStatus
-  })
+    fetchData();
+  }, []);
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case "Pending": return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
-      case "Under Review": return "bg-blue-500/20 text-blue-400 border-blue-500/30"
-      case "Approved": return "bg-green-500/20 text-green-400 border-green-500/30"
-      case "Rejected": return "bg-red-500/20 text-red-400 border-red-500/30"
-      default: return "bg-slate-500/20 text-slate-400 border-slate-500/30"
+  // Handle tier assignment
+  const handleAssignTier = async () => {
+    console.log('🏷️ [Gym Badging] Assigning tier:', { selectedGym, selectedTier });
+    
+    if (!selectedGym || !selectedTier) {
+      console.error('🏷️ [Gym Badging] Missing gym or tier selection');
+      toast.error('Please select a gym and a tier.');
+      return;
     }
+
+    try {
+      setAssigningTier(true);
+      console.log('🏷️ [Gym Badging] Sending assignment request...');
+      const response = await assignGymToTier(selectedGym, selectedTier);
+      console.log('🏷️ [Gym Badging] Assignment response:', response);
+      
+      if (response.success) {
+        toast.success(`Gym assigned to ${selectedTier} tier successfully.`);
+        
+        // Update the gym in the local state
+        setGyms(prevGyms => {
+          const updatedGyms = prevGyms.map(gym => 
+            gym.id === selectedGym 
+              ? { ...gym, tier: selectedTier } 
+              : gym
+          );
+          console.log('🏷️ [Gym Badging] Updated gyms state:', updatedGyms);
+          return updatedGyms;
+        });
+        
+        // Reset selection
+        setSelectedGym(null);
+        setSelectedTier('');
+      } else {
+        console.error('🏷️ [Gym Badging] Assignment failed:', response.message);
+        toast.error(response.message || 'Failed to assign tier.');
+      }
+    } catch (error) {
+      console.error('🏷️ [Gym Badging] Failed to assign tier:', error);
+      toast.error('An error occurred while assigning tier. Please try again.');
+    } finally {
+      setAssigningTier(false);
+    }
+  };
+
+  if (loading) {
+    console.log('🏋️ [Gym Badging] Component in loading state');
+    return <div className="flex justify-center items-center h-64">Loading gyms...</div>;
   }
 
-  const handleApprove = (id) => {
-    // Handle approval logic
-    console.log("Approved gym:", id)
-  }
-
-  const handleReject = (id) => {
-    // Handle rejection logic
-    console.log("Rejected gym:", id)
-  }
-
-  const handleViewDetails = (gym) => {
-    setSelectedGym(gym)
-  }
-
+  console.log('🏋️ [Gym Badging] Rendering component with:', { gyms, tiers });
+  
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold text-white">Gym Approval Requests</h1>
-        <p className="text-slate-400 mt-2">Review and manage gym partnership applications.</p>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card className="bg-slate-900 border-slate-800">
-          <CardContent className="p-6">
-            <div className="flex items-center space-x-4">
-              <div className="p-3 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500">
-                <Building2 className="h-6 w-6 text-white" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-400">Pending</p>
-                <p className="text-2xl font-bold text-white">{pendingApprovals.filter(a => a.status === "Pending").length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-slate-900 border-slate-800">
-          <CardContent className="p-6">
-            <div className="flex items-center space-x-4">
-              <div className="p-3 rounded-full bg-gradient-to-br from-blue-400 to-purple-500">
-                <Eye className="h-6 w-6 text-white" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-400">Under Review</p>
-                <p className="text-2xl font-bold text-white">{pendingApprovals.filter(a => a.status === "Under Review").length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-slate-900 border-slate-800">
-          <CardContent className="p-6">
-            <div className="flex items-center space-x-4">
-              <div className="p-3 rounded-full bg-gradient-to-br from-green-400 to-blue-500">
-                <Check className="h-6 w-6 text-white" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-400">Approved This Month</p>
-                <p className="text-2xl font-bold text-white">12</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-slate-900 border-slate-800">
-          <CardContent className="p-6">
-            <div className="flex items-center space-x-4">
-              <div className="p-3 rounded-full bg-gradient-to-br from-purple-400 to-pink-500">
-                <Users className="h-6 w-6 text-white" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-400">Total Capacity</p>
-                <p className="text-2xl font-bold text-white">{pendingApprovals.reduce((sum, a) => sum + a.memberCapacity, 0).toLocaleString()}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Search and Filters */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
-          <Input
-            placeholder="Search gyms or owners..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 bg-slate-800 border-slate-700 text-white placeholder-slate-400 focus:border-green-500 focus:ring-green-500"
-          />
-        </div>
-        <div className="flex gap-2">
-          <select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-            className="px-3 py-2 bg-slate-800 border border-slate-700 text-white rounded-md focus:border-green-500 focus:ring-green-500"
-          >
-            <option value="all">All Status</option>
-            <option value="Pending">Pending</option>
-            <option value="Under Review">Under Review</option>
-            <option value="Approved">Approved</option>
-            <option value="Rejected">Rejected</option>
-          </select>
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-6">Gym Badging Management</h1>
+      
+      {/* Tier Assignment Form */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
+        <h2 className="text-lg font-semibold mb-4">Assign Tier to Gym</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Select Gym</label>
+            <select
+              value={selectedGym || ''}
+              onChange={(e) => {
+                console.log('🏋️ [Gym Badging] Gym selection changed:', e.target.value);
+                setSelectedGym(e.target.value);
+              }}
+              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700"
+            >
+              <option value="">Select a gym</option>
+              {gyms.map(gym => (
+                <option key={gym.id} value={gym.id}>
+                  {gym.name} {gym.tier && `(${gym.tier})`}
+                </option>
+              ))}
+            </select>
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium mb-2">Select Tier</label>
+            <select
+              value={selectedTier}
+              onChange={(e) => {
+                console.log('🏆 [Gym Badging] Tier selection changed:', e.target.value);
+                setSelectedTier(e.target.value);
+              }}
+              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700"
+            >
+              <option value="">Select a tier</option>
+              {tiers.map(tier => (
+                <option key={tier.id} value={tier.name}>
+                  {tier.name} - ${tier.price}/month
+                </option>
+              ))}
+            </select>
+          </div>
+          
+          <div className="flex items-end">
+            <button
+              onClick={() => {
+                console.log('🏷️ [Gym Badging] Assign button clicked');
+                handleAssignTier();
+              }}
+              disabled={assigningTier || !selectedGym || !selectedTier}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              {assigningTier ? 'Assigning...' : 'Assign Tier'}
+            </button>
+          </div>
         </div>
       </div>
-
-      {/* Gym Approvals List */}
-      <div className="grid gap-6">
-        {filteredApprovals.map((approval) => (
-          <Card key={approval.id} className="bg-slate-900 border-slate-800 hover:border-green-500/30 transition-all duration-200">
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div className="flex items-center space-x-4">
-                  <Avatar className="h-16 w-16">
-                    <AvatarFallback className="bg-gradient-to-br from-green-400 to-blue-500 text-white text-lg">
-                      {approval.avatar}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <CardTitle className="text-white text-xl">{approval.gymName}</CardTitle>
-                    <CardDescription className="text-slate-400">
-                      Owned by {approval.owner}
-                    </CardDescription>
-                    <div className="flex items-center space-x-4 mt-2">
-                      <div className="flex items-center space-x-1 text-sm text-slate-400">
-                        <MapPin className="w-4 h-4" />
-                        <span>{approval.address}</span>
+      
+      {/* Gyms List */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-lg font-semibold">Gyms Opted In for Multi-Gym Access</h2>
+        </div>
+        
+        {gyms.length === 0 ? (
+          <div className="p-6 text-center text-gray-500 dark:text-gray-400">
+            No gyms have opted in for multi-gym access yet.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 dark:bg-gray-700">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Gym Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Address
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Manager
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Current Tier
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                {gyms.map(gym => (
+                  <tr key={gym.id}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900 dark:text-white">
+                        {gym.name}
                       </div>
-                      <div className="flex items-center space-x-1 text-sm text-slate-400">
-                        <Users className="w-4 h-4" />
-                        <span>{approval.memberCapacity} capacity</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-500 dark:text-gray-400">
+                        {gym.address}
                       </div>
-                      <div className="flex items-center space-x-1 text-sm text-slate-400">
-                        <Calendar className="w-4 h-4" />
-                        <span>Submitted {approval.submittedDate}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-500 dark:text-gray-400">
+                        {gym.manager?.memberProfile?.name || gym.manager?.email || 'N/A'}
                       </div>
-                    </div>
-                  </div>
-                </div>
-                <Badge className={getStatusColor(approval.status)}>
-                  {approval.status}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-slate-300">{approval.description}</p>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <h4 className="font-medium text-white mb-2">Contact Information</h4>
-                  <div className="space-y-2 text-sm text-slate-400">
-                    <div className="flex items-center space-x-2">
-                      <Mail className="w-4 h-4" />
-                      <span>{approval.email}</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Phone className="w-4 h-4" />
-                      <span>{approval.phone}</span>
-                    </div>
-                  </div>
-                </div>
-                
-                <div>
-                  <h4 className="font-medium text-white mb-2">Facilities</h4>
-                  <div className="flex flex-wrap gap-1">
-                    {approval.facilities.map((facility, index) => (
-                      <Badge key={index} variant="outline" className="text-xs border-slate-600 text-slate-300">
-                        {facility}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <h4 className="font-medium text-white mb-2">Required Documents</h4>
-                <div className="flex flex-wrap gap-1">
-                  {approval.documents.map((doc, index) => (
-                    <Badge key={index} variant="outline" className="text-xs border-green-600 text-green-400">
-                      ✓ {doc}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-4 border-t border-slate-700">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleViewDetails(approval)}
-                  className="border-slate-600 text-slate-300 hover:bg-slate-700"
-                >
-                  <Eye className="w-4 h-4 mr-2" />
-                  View Details
-                </Button>
-                
-                <div className="flex space-x-2">
-                  <Button
-                    size="sm"
-                    onClick={() => handleReject(approval.id)}
-                    variant="outline"
-                    className="border-red-600 text-red-400 hover:bg-red-600/20"
-                  >
-                    <X className="w-4 h-4 mr-2" />
-                    Reject
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => handleApprove(approval.id)}
-                    className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
-                  >
-                    <Check className="w-4 h-4 mr-2" />
-                    Approve
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                        gym.tier === 'Platinum' ? 'bg-purple-100 text-purple-800' :
+                        gym.tier === 'Gold' ? 'bg-yellow-100 text-yellow-800' :
+                        gym.tier === 'Silver' ? 'bg-gray-100 text-gray-800' :
+                        'bg-red-100 text-red-800'
+                      }`}>
+                        {gym.tier || 'Not Assigned'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
-
-      {filteredApprovals.length === 0 && (
-        <Card className="bg-slate-900 border-slate-800">
-          <CardContent className="p-12 text-center">
-            <Building2 className="w-12 h-12 text-slate-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-white mb-2">No approval requests found</h3>
-            <p className="text-slate-400">No gym applications match your current filters.</p>
-          </CardContent>
-        </Card>
-      )}
     </div>
-  )
+  );
 }

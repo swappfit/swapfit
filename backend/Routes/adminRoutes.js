@@ -25,7 +25,8 @@ router.use(authGatekeeper, adminAuth);
 router.get('/gyms/pending', adminController.getPendingGyms);
 router.patch('/gyms/:gymId/status', validate(updateGymStatusSchema), adminController.updateGymStatus);
 router.patch('/gyms/:gymId/badges', validate(updateGymBadgesSchema), adminController.updateGymBadges);
-
+// Add this to your adminRoutes.js file
+router.get('/gyms-for-badging', adminController.getGymsForBadging);
 // --- User Management by Admin ---
 router.get('/users', adminController.getUsers);
 router.get('/users/stats', adminController.getUserStats);
