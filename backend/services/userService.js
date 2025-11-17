@@ -1,4 +1,3 @@
-// src/services/userService.js
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import AppError from '../utils/AppError.js';
@@ -53,6 +52,8 @@ export const updateUserProfile = async (user, updateData) => {
  * @description Fetches the full user object, including their role-specific profile,
  * active subscriptions, and available multi-gym tiers for purchase.
  */
+// In your services/userService.js
+
 export const getUserProfile = async (userId) => {
   // Ensure user ID is properly formatted (pad if necessary)
   const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
@@ -78,7 +79,7 @@ export const getUserProfile = async (userId) => {
               include: {
                 gymPlan: { select: { id: true, name: true, gym: { select: { id: true, name: true } } } },
                 trainerPlan: { select: { id: true, name: true } },
-                // We'll handle multiGymTier in the controller
+                multiGymTier: true
               }
             },
         },
@@ -98,45 +99,46 @@ export const getUserProfile = async (userId) => {
     console.log('User object from database:', user);
     
     // Process subscriptions to handle multi-gym tier
-    const processedSubscriptions = await Promise.all(user.subscriptions.map(async sub => {
+    const processedSubscriptions = user.subscriptions.map(sub => {
       const processedSub = { ...sub };
       
       // Handle multi-gym tier if it exists
       if (sub.multiGymTierId) {
         // Get the tier details from the predefined tiers
-        const tiers = await getMultiGymTiers();
+        const tiers = getMultiGymTiers();
         const tier = tiers.find(t => t.id === sub.multiGymTierId);
         processedSub.multiGymTier = tier || null;
       }
       
       return processedSub;
-    }));
+    });
     
-    // Fetch accessible gyms based on multi-gym subscription
-    let accessibleGyms = [];
-    const activeMultiGymSub = processedSubscriptions.find(sub => sub.multiGymTier && sub.status === 'active');
+    // Fetch ALL gyms that accept multi-gym access
+    console.log(`[UserService] Fetching all gyms that accept multi-gym access`);
     
-    if (activeMultiGymSub) {
-      // Find gyms that match the user's tier
-      const tierName = activeMultiGymSub.multiGymTier.name;
-      accessibleGyms = await prisma.gym.findMany({
-        where: {
-          status: 'approved',
-          badges: {
-            has: tierName
-          }
-        },
-        select: {
-          id: true,
-          name: true,
-          address: true,
-          city: true,
-          state: true,
-          photos: true,
-          badges: true
-        }
-      });
-    }
+    const allMultiGymGyms = await prisma.gym.findMany({
+      where: {
+        acceptsMultigym: true, // Only get gyms that accept multi-gym
+      },
+      select: {
+        id: true,
+        name: true,
+        address: true,
+        photos: true,
+        badges: true,
+        status: true,
+        latitude: true,
+        longitude: true
+      }
+    });
+    
+    console.log(`[UserService] Found ${allMultiGymGyms.length} gyms that accept multi-gym access`);
+    console.log(`[UserService] Multi-gym gyms:`, allMultiGymGyms.map(g => ({ 
+      id: g.id, 
+      name: g.name, 
+      acceptsMultigym: g.acceptsMultigym,
+      status: g.status 
+    })));
     
     console.log(`[UserService] Successfully fetched full profile for User ID: ${formattedUserId}`);
     
@@ -147,7 +149,7 @@ export const getUserProfile = async (userId) => {
     const profileWithTiers = {
         ...userResponse,
         subscriptions: processedSubscriptions,
-        accessibleGyms,
+        accessibleGyms: allMultiGymGyms, // All gyms that accept multi-gym
         availableMultiGymTiers: availableTiers
     };
 
@@ -158,7 +160,6 @@ export const getUserProfile = async (userId) => {
     throw new AppError('Failed to retrieve user profile due to a server error.', 500);
   }
 };
-
 /**
  * @description Fetches all of the user's check-ins (active and completed), including gym details.
  */
@@ -240,7 +241,7 @@ export const getUserStats = async (userId) => {
 /**
  * @description Helper function to get predefined multi-gym tiers
  */
-const getMultiGymTiers = async () => {
+const getMultiGymTiers = () => {
     // Return predefined tiers
     return [
         {
@@ -275,10 +276,10 @@ const getMultiGymTiers = async () => {
             chargebeePlanId: process.env.CHARGEBEE_PLATINUM_PLAN_ID,
             description: 'Access to all Platinum tier gyms',
             features: [
-                'Access to all Platinum tier gyms',
+                'Access to ALL gyms (200+)',
                 'VIP amenities access',
                 'Weekly fitness assessment',
-                '2 personal training sessions per month',
+                '2 personal training sessions/month',
                 'Nutrition consultation'
             ]
         }
