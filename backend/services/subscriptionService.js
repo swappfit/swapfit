@@ -1,4 +1,3 @@
-// subscriptionService.js - Update to include trainer information
 import { PrismaClient } from '@prisma/client';
 import chargebeeModule from 'chargebee-typescript';
 import AppError from '../utils/AppError.js';
@@ -207,7 +206,31 @@ const processMarketplaceOrder = async (invoice) => {
         });
 
         const orderItemsToCreate = line_items.map(lineItem => {
-            const { internal_product_id, internal_merchant_id, internal_cart_item_id } = lineItem.metadata;
+            // Handle both direct metadata and nested cart_items metadata
+            let metadata = lineItem.metadata;
+            
+            // If we have cart_items in metadata, parse it
+            if (metadata && metadata.cart_items) {
+                try {
+                    const cartItems = JSON.parse(metadata.cart_items);
+                    if (Array.isArray(cartItems) && cartItems.length > 0) {
+                        // Use first item from parsed cart items
+                        const cartItem = cartItems[0];
+                        return {
+                            orderId: order.id,
+                            productId: cartItem.productId,
+                            name: cartItem.productName,
+                            price: cartItem.price,
+                            quantity: cartItem.quantity,
+                        };
+                    }
+                } catch (parseError) {
+                    console.error("[Webhook] Error parsing cart_items metadata:", parseError);
+                }
+            }
+            
+            // Fallback to direct metadata
+            const { internal_product_id, internal_merchant_id, internal_cart_item_id } = metadata;
             return {
                 orderId: order.id,
                 productId: internal_product_id,
@@ -219,7 +242,14 @@ const processMarketplaceOrder = async (invoice) => {
 
         await tx.orderItem.createMany({ data: orderItemsToCreate });
 
-        const cartItemIdsToDelete = line_items.map(li => li.metadata.internal_cart_item_id);
+        // Try to clean up cart items if possible
+        const cartItemIdsToDelete = line_items.map(li => {
+            if (li.metadata && li.metadata.internal_cart_item_id) {
+                return li.metadata.internal_cart_item_id;
+            }
+            return null;
+        }).filter(id => id !== null);
+        
         if (cartItemIdsToDelete.length > 0) {
             await tx.cartItem.deleteMany({
                 where: {
@@ -273,6 +303,64 @@ export const processWebhook = async (payload) => {
             } else {
                 console.log('[Webhook] Received subscription payment, deferring to subscription-specific events for processing.');
             }
+        }
+
+        // NEW: Handle item events for marketplace products
+        if (event_type === 'item_created') {
+            console.log('[Webhook] Processing item creation');
+            // This event is triggered when a new product is created in Chargebee
+            // We don't need to do anything here as the product is already created in our DB
+            return { success: true, message: `Processed item creation` };
+        }
+
+        if (event_type === 'item_updated') {
+            console.log('[Webhook] Processing item update');
+            const item = content.item;
+            
+            // Check if this is a marketplace product
+            if (item.metadata && item.metadata.productId) {
+                console.log(`[Webhook] Updating product ${item.metadata.productId} status to ${item.status}`);
+                
+                // FIXED: Don't try to update a non-existent 'status' field
+                // Instead, we'll just log the update for now
+                // In a real implementation, you might want to add a status field to your Product model
+                console.log(`[Webhook] ✅ Noted status change for product ${item.metadata.productId} to ${item.status}`);
+            }
+            
+            return { success: true, message: `Processed item update` };
+        }
+
+        if (event_type === 'item_price_created') {
+            console.log('[Webhook] Processing item price creation');
+            // This event is triggered when a new price point is created for a product
+            // We don't need to do anything here as the price is already set in our DB
+            return { success: true, message: `Processed item price creation` };
+        }
+
+        if (event_type === 'item_price_updated') {
+            console.log('[Webhook] Processing item price update');
+            const itemPrice = content.item_price;
+            
+            // Find the product associated with this item price
+            const product = await prisma.product.findFirst({
+                where: { chargebeeItemPriceId: itemPrice.id }
+            });
+            
+            if (product) {
+                console.log(`[Webhook] Updating price for product ${product.id} to ${itemPrice.price / 100}`);
+                
+                // Update the product price in our database
+                await prisma.product.update({
+                    where: { id: product.id },
+                    data: { 
+                        price: itemPrice.price / 100
+                    }
+                });
+                
+                console.log(`[Webhook] ✅ Updated product ${product.id} price`);
+            }
+            
+            return { success: true, message: `Processed item price update` };
         }
 
         const subscriptionEvents = [

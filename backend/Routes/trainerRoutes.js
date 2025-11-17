@@ -1,8 +1,7 @@
 // src/routes/trainerRoutes.js
-
 import express from 'express';
 import * as trainerController from '../controllers/trainerController.js';
-import authGatekeeper from '../middlewares/authGatekeeper.js'; // Changed from jwtAuth to authGatekeeper
+import authGatekeeper from '../middlewares/authGatekeeper.js';
 import roleAuth from '../middlewares/roleAuth.js';
 
 import validate, {
@@ -23,17 +22,17 @@ const router = express.Router();
 //================================================================
 router.get('/browse', validate(browseTrainersSchema), trainerController.getAllTrainers);
 router.get('/profile/:id', validate(trainerIdParamSchema), trainerController.getTrainerById);
+router.get('/id/:id', validate(trainerIdParamSchema), trainerController.getTrainerByTrainerId);
 
 //================================================================
 // APPLY AUTHENTICATION FOR ALL SUBSEQUENT ROUTES
 //================================================================
-router.use(authGatekeeper); // Changed from jwtAuth to authGatekeeper
+router.use(authGatekeeper);
 
 //================================================================
 // 2. TRAINER-ONLY ROUTES (Requires 'TRAINER' role)
 //================================================================
-// All routes in this section are automatically protected by authGatekeeper and roleAuth('TRAINER')
-router.get('/profile/me', roleAuth('TRAINER'), trainerController.getMyProfile); // Add this route
+router.get('/profile/me', roleAuth('TRAINER'), trainerController.getMyProfile);
 router.put('/profile/me', validate(updateProfileSchema), roleAuth('TRAINER'), trainerController.updateTrainerProfile);
 router.get('/dashboard', roleAuth('TRAINER'), trainerController.getTrainerDashboard);
 router.get('/subscribers', roleAuth('TRAINER'), trainerController.getSubscribedMembers);
@@ -42,11 +41,11 @@ router.get('/subscribers', roleAuth('TRAINER'), trainerController.getSubscribedM
 router.patch('/subscription-plans/:planId/trial', validate(updateTrialSchema), roleAuth('TRAINER'), trainerController.updatePlanTrial);
 
 // --- Training Plan Management (the workout templates) ---
-const planRouter = express.Router(); // Sub-router for cleaner organization
+const planRouter = express.Router();
 planRouter.use(roleAuth('TRAINER'));
 
 planRouter.post('/', validate(createTrainingPlanSchema), trainerController.createTrainingPlan);
-planRouter.get('/', trainerController.getMyTrainingPlans); // No validation needed
+planRouter.get('/', trainerController.getMyTrainingPlans);
 planRouter.put('/:planId', validate(updateTrainingPlanSchema), trainerController.updateTrainingPlan);
 planRouter.post('/assign', validate(assignPlanSchema), trainerController.assignPlanToMember);
 
@@ -55,7 +54,6 @@ router.use('/training-plans', planRouter);
 //================================================================
 // 3. ADDITIONAL ROUTES
 //================================================================
-// Add the missing route for getting trainers by plan IDs
 router.post('/by-plan-ids', trainerController.getTrainersByPlanIds);
 
 export default router;

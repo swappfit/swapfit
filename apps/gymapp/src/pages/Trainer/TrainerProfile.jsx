@@ -1,6 +1,6 @@
 // src/pages/Trainer/TrainerProfile.jsx
 import React, { useState, useEffect } from 'react';
-// FIX: Import the correct trainer service to call the trainer-specific endpoint
+// ✅ FIX: Import the CORRECT trainer service to call the trainer-specific endpoint
 import { getMyProfile } from '../../api/trainerService'; 
 import { useAuth } from '../../context/AuthContext';
 import { Edit, CheckCircle, Mail, Phone, AlertCircle } from 'lucide-react'; 
@@ -10,7 +10,7 @@ export default function TrainerProfile() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
-  const { user } = useAuth();
+  const { user, formatUserId } = useAuth();
 
   const fetchTrainerProfile = async () => {
     if (!user || !user.id) {
@@ -21,18 +21,23 @@ export default function TrainerProfile() {
     setIsLoading(true);
     setError(null);
     try {
-        // Call the trainer-specific service to get the trainer profile
-        const trainerProfileResponse = await getMyProfile();
+        // Format the user ID to ensure it's 25 characters
+        const formattedUserId = formatUserId(user.id);
+        console.log('Formatted user ID:', formattedUserId);
         
-        // Map the data from the trainer profile response
-        const profileData = trainerProfileResponse.data || trainerProfileResponse; // Fallback for different response structures
+        // Call the TRAINER service to get the trainer profile
+        const profileResponse = await getMyProfile();
+        
+        // The new API returns { success: true, data: <trainerProfile> }
+        // So we extract the `data` property directly.
+        const profileData = profileResponse.data;
 
         // Check if the trainer profile exists
         if (!profileData) {
             throw new Error("Trainer profile not found. Please complete your profile first.");
         }
 
-        // Directly set the trainer data without formatting
+        // Set the trainer data directly
         setTrainerData(profileData);
     } catch (err) {
         const errorMessage = err.response?.data?.message || err.message || 'Failed to load profile.';
@@ -143,7 +148,7 @@ export default function TrainerProfile() {
                 <label className="block text-gray-400 text-sm mb-1">Email</label>
                 <div className="flex items-center bg-gray-700 border border-gray-600 rounded-lg px-4 py-3">
                   <Mail size={16} className="text-teal-500 mr-3" />
-                  <input type="email" value={trainer.user?.email || user.email || 'trainer@example.com'} className="flex-1 bg-transparent text-white focus:outline-none" readOnly />
+                  <input type="email" value={user.email || 'trainer@example.com'} className="flex-1 bg-transparent text-white focus:outline-none" readOnly />
                 </div>
               </div>
               <div>

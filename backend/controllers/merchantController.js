@@ -20,7 +20,7 @@ export const createMyProduct = catchAsync(async (req, res) => {
     }
 
     console.log("✅ [MerchantController] createMyProduct: About to call productService.createProductForMerchant...");
-    await productService.createProductForMerchant(userId, req.body);
+    const newProduct = await productService.createProductForMerchant(userId, req.body);
     console.log("✅ [MerchantController] createMyProduct: Service call completed successfully.");
 
     console.log("✅ [MerchantController] createMyProduct: About to call authService.getFullUserById...");
@@ -34,7 +34,11 @@ export const createMyProduct = catchAsync(async (req, res) => {
     console.log("✅ [MerchantController] createMyProduct: Sending 201 response.");
     res.status(201).json({
       success: true,
-      data: { token: newToken, user: updatedUser },
+      data: { 
+        token: newToken, 
+        user: updatedUser,
+        product: newProduct
+      },
     });
 
   } catch (error) {
@@ -46,7 +50,6 @@ export const createMyProduct = catchAsync(async (req, res) => {
     throw error;
   }
 });
-
 
 export const getMyProducts = catchAsync(async (req, res) => {
   const userId = req.user.id;
@@ -81,4 +84,3 @@ export const deleteMyProduct = catchAsync(async (req, res) => {
     data: { token: newToken, user: updatedUser },
   });
 });
-

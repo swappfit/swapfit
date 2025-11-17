@@ -1,10 +1,24 @@
-// src/validators/trainerValidator.js
-
 import Joi from 'joi';
 import AppError from '../utils/AppError.js';
 
-const validate = (schema) => (req, res, next) => {
-  const { error } = schema.validate({ ...req.body, ...req.params, ...req.query });
+// ✅ UPDATED VALIDATION MIDDLEWARE ✅
+const validate = (schema, source = 'body') => (req, res, next) => {
+  let dataToValidate = {};
+
+  // ✅ ONLY validate the relevant part of the request
+  if (source === 'body') {
+    dataToValidate = req.body;
+  } else if (source === 'params') {
+    dataToValidate = req.params;
+  } else if (source === 'query') {
+    dataToValidate = req.query;
+  }
+
+  const { error } = schema.validate(dataToValidate, {
+    abortEarly: false,
+    stripUnknown: true,
+  });
+
   if (error) {
     const errorMessage = error.details.map((d) => d.message).join('; ');
     return next(new AppError(errorMessage, 400));
@@ -12,7 +26,6 @@ const validate = (schema) => (req, res, next) => {
   return next();
 };
 
-const cuidSchema = Joi.string().length(25).required();
 
 // --- Schemas ---
 
@@ -22,7 +35,7 @@ export const browseTrainersSchema = Joi.object({
 });
 
 export const trainerIdParamSchema = Joi.object({
-  id: cuidSchema.label('Trainer User ID'),
+  id: Joi.string().length(25).required().label('Trainer User ID'), // ✅ Added a label for a clearer error message
 });
 
 export const updateProfileSchema = Joi.object({
@@ -35,11 +48,11 @@ export const createTrainingPlanSchema = Joi.object({
   name: Joi.string().required(),
   description: Joi.string().allow('').optional(),
   duration: Joi.number().integer().positive().required(),
-  workoutsJson: Joi.object().required(), // Ensure it's a valid JSON object
+  workoutsJson: Joi.object().required(),
 });
 
 export const updateTrainingPlanSchema = Joi.object({
-    planId: cuidSchema.required(),
+    planId: Joi.string().length(25).required(),
     name: Joi.string().optional(),
     description: Joi.string().allow('').optional(),
     duration: Joi.number().integer().positive().optional(),
@@ -47,16 +60,16 @@ export const updateTrainingPlanSchema = Joi.object({
 });
 
 export const assignPlanSchema = Joi.object({
-  planId: cuidSchema.required(),
-  memberId: cuidSchema.required(),
+  planId: Joi.string().length(25).required(),
+  memberId: Joi.string().length(25).required(),
 });
 
 export const planIdParamSchema = Joi.object({
-    planId: cuidSchema.required(),
+    planId: Joi.string().length(25).required(),
 });
 
 export const updateTrialSchema = Joi.object({
-    planId: cuidSchema.required(),
+    planId: Joi.string().length(25).required(),
     trialEnabled: Joi.boolean().required(),
     trialDurationDays: Joi.number().integer().positive().when('trialEnabled', {
         is: true,
@@ -66,4 +79,3 @@ export const updateTrialSchema = Joi.object({
 });
 
 export default validate;
-

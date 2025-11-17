@@ -18,7 +18,7 @@ export default function AddProductModal({ isOpen, onClose, onProductAdded }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
-  // ✅ NEW: State for image upload
+  // State for image upload
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -30,7 +30,7 @@ export default function AddProductModal({ isOpen, onClose, onProductAdded }) {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // ✅ NEW: Handle file selection and upload
+  // Handle file selection and upload
   const handleImageChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -113,7 +113,7 @@ export default function AddProductModal({ isOpen, onClose, onProductAdded }) {
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <p className="text-red-400 bg-red-900/50 p-3 rounded-lg text-sm">{error}</p>}
           
-          {/* ✅ NEW: Image Upload Section */}
+          {/* Image Upload Section */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">Product Image</label>
             <input 

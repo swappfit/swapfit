@@ -1,3 +1,4 @@
+// src/services/userService.js
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import AppError from '../utils/AppError.js';
@@ -8,7 +9,10 @@ const prisma = new PrismaClient();
  * Changes the password for a logged-in user.
  */
 export const changeUserPassword = async (userId, currentPassword, newPassword) => {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  // Ensure user ID is properly formatted (pad if necessary)
+  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
+  
+  const user = await prisma.user.findUnique({ where: { id: formattedUserId } });
   if (!user || !user.password) {
     throw new AppError('Password change is not available for this account.', 403);
   }
@@ -18,7 +22,7 @@ export const changeUserPassword = async (userId, currentPassword, newPassword) =
   }
   const hashedPassword = await bcrypt.hash(newPassword, 10);
   await prisma.user.update({
-    where: { id: userId },
+    where: { id: formattedUserId },
     data: { password: hashedPassword },
   });
 };
@@ -28,13 +32,16 @@ export const changeUserPassword = async (userId, currentPassword, newPassword) =
  */
 export const updateUserProfile = async (user, updateData) => {
   const { id: userId, role } = user;
+  // Ensure user ID is properly formatted (pad if necessary)
+  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
+  
   switch (role) {
     case 'MEMBER':
-      return await prisma.memberProfile.update({ where: { userId }, data: updateData });
+      return await prisma.memberProfile.update({ where: { userId: formattedUserId }, data: updateData });
     case 'TRAINER':
-      return await prisma.trainerProfile.update({ where: { userId }, data: updateData });
+      return await prisma.trainerProfile.update({ where: { userId: formattedUserId }, data: updateData });
     case 'GYM_OWNER':
-      const gym = await prisma.gym.findFirst({ where: { managerId: userId } });
+      const gym = await prisma.gym.findFirst({ where: { managerId: formattedUserId } });
       if (!gym) throw new AppError('No managed gym found for this user.', 404);
       return await prisma.gym.update({ where: { id: gym.id }, data: updateData });
     default:
@@ -47,16 +54,23 @@ export const updateUserProfile = async (user, updateData) => {
  * active subscriptions, and available multi-gym tiers for purchase.
  */
 export const getUserProfile = async (userId) => {
-  console.log(`[UserService] Attempting to fetch full profile for User ID: ${userId}`);
-  if (!userId) throw new AppError("User not identified.", 401);
+  // Ensure user ID is properly formatted (pad if necessary)
+  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
+  
+  console.log(`[UserService] Attempting to fetch full profile for User ID: ${formattedUserId}`);
+  if (!formattedUserId) throw new AppError("User not identified.", 401);
   try {
     // Use a transaction to fetch user data and available tiers in parallel
     const [user, availableTiers] = await prisma.$transaction([
       prisma.user.findUnique({
-        where: { id: userId },
+        where: { id: formattedUserId },
         include: {
             memberProfile: true,
-            trainerProfile: true,
+            trainerProfile: {
+              include: {
+                plans: true // Include trainer plans
+              }
+            },
             managedGyms: { take: 1 },
             merchantProfile: true,
             subscriptions: {
@@ -79,6 +93,9 @@ export const getUserProfile = async (userId) => {
     if (!user) {
       throw new AppError("User not found.", 404);
     }
+    
+    // Log the user object to debug
+    console.log('User object from database:', user);
     
     // Process subscriptions to handle multi-gym tier
     const processedSubscriptions = await Promise.all(user.subscriptions.map(async sub => {
@@ -121,7 +138,7 @@ export const getUserProfile = async (userId) => {
       });
     }
     
-    console.log(`[UserService] Successfully fetched full profile for User ID: ${userId}`);
+    console.log(`[UserService] Successfully fetched full profile for User ID: ${formattedUserId}`);
     
     // Exclude password before sending back to client
     const { password, ...userResponse } = user;
@@ -146,13 +163,16 @@ export const getUserProfile = async (userId) => {
  * @description Fetches all of the user's check-ins (active and completed), including gym details.
  */
 export const getUserCheckIns = async (userId) => {
+  // Ensure user ID is properly formatted (pad if necessary)
+  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
+  
   try {
-    console.log(`[UserService] Fetching ALL check-ins for user ${userId}`);
+    console.log(`[UserService] Fetching ALL check-ins for user ${formattedUserId}`);
     
     // ✅ CHANGE: Removed the date filter to fetch all check-ins
     const checkIns = await prisma.checkIn.findMany({
       where: {
-        userId, // Only filter by user ID
+        userId: formattedUserId, // Only filter by user ID
       },
       include: {
         gym: {
@@ -175,7 +195,7 @@ export const getUserCheckIns = async (userId) => {
       checkOut: checkIn.checkOut ? checkIn.checkOut.toISOString() : null
     }));
 
-    console.log(`[UserService] Found a total of ${serializedCheckIns.length} check-ins for user ${userId}.`);
+    console.log(`[UserService] Found a total of ${serializedCheckIns.length} check-ins for user ${formattedUserId}.`);
     serializedCheckIns.forEach(checkIn => {
         console.log(`[UserService] - CheckIn ID: ${checkIn.id}, Gym: ${checkIn.gym.name}, CheckIn: ${checkIn.checkIn}, CheckOut: ${checkIn.checkOut || 'Still active'}`);
     });
@@ -191,16 +211,19 @@ export const getUserCheckIns = async (userId) => {
  * @description Placeholder for fetching user statistics.
  */
 export const getUserStats = async (userId) => {
+  // Ensure user ID is properly formatted (pad if necessary)
+  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
+  
     try {
-        const totalCheckIns = await prisma.checkIn.count({ where: { userId } });
+        const totalCheckIns = await prisma.checkIn.count({ where: { userId: formattedUserId } });
         const favoriteGym = await prisma.gym.findFirst({
-            where: { checkIns: { some: { userId } } },
+            where: { checkIns: { some: { userId: formattedUserId } } },
             orderBy: { checkIns: { _count: 'desc' } },
             select: { id: true, name: true }
         });
         const monthlyWorkouts = await prisma.checkIn.count({
             where: {
-                userId,
+                userId: formattedUserId,
                 checkIn: {
                     gte: new Date(new Date().setDate(1)) // First day of the current month
                 }
@@ -266,9 +289,12 @@ const getMultiGymTiers = async () => {
  * @description Get user's subscriptions
  */
 export const getUserSubscriptions = async (userId) => {
+  // Ensure user ID is properly formatted (pad if necessary)
+  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
+  
     try {
         const user = await prisma.user.findUnique({
-            where: { id: userId },
+            where: { id: formattedUserId },
             include: {
                 memberProfile: true,
                 subscriptions: {

@@ -1,5 +1,4 @@
 // src/services/trainerService.js
-
 import { PrismaClient } from '@prisma/client';
 import AppError from '../utils/AppError.js';
 
@@ -7,7 +6,13 @@ const prisma = new PrismaClient();
 
 // Helper to get trainer profile and verify existence, keeping services DRY
 const getTrainerProfileByUserId = async (userId) => {
-  const trainerProfile = await prisma.trainerProfile.findUnique({ where: { userId } });
+  // Ensure user ID is properly formatted (pad if necessary)
+  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
+  
+  const trainerProfile = await prisma.trainerProfile.findUnique({ 
+    where: { userId: formattedUserId } 
+  });
+  
   if (!trainerProfile) {
     throw new AppError('A trainer profile for the logged-in user was not found.', 404);
   }
@@ -16,46 +21,39 @@ const getTrainerProfileByUserId = async (userId) => {
 
 // --- Public Services ---
 export const getAll = async (queryParams) => {
-  // ✅ LOG to confirm this function is being called
   console.log('[Trainer Service] The getAll function was successfully called.');
 
-  // --- 1. Robust Pagination & Query Parameter Handling ---
-  // Provide default values and ensure page/limit are numbers
   const page = parseInt(queryParams.page || '1', 10);
   const limit = parseInt(queryParams.limit || '30', 30);
   const skip = (page - 1) * limit;
 
-  // --- 2. Live Database Query ---
   try {
     console.log(`[Trainer Service] Attempting to query the database with page: ${page}, limit: ${limit}...`);
     
-    // Use a transaction to efficiently fetch trainers and the total count in one database roundtrip
     const [trainers, total] = await prisma.$transaction([
       prisma.trainerProfile.findMany({
         skip,
         take: limit,
         orderBy: {
-          // You can make this more complex later if needed
           user: { id: 'asc' } 
         },
         include: {
-          // Only include the necessary fields from the related user table for performance
           user: {
             select: {
               id: true,
               email: true,
             }
+          },
+          plans: {
+            orderBy: { price: 'asc' }
           }
         },
       }),
-      // Get the total count of all trainer profiles in the database
       prisma.trainerProfile.count(),
     ]);
 
     console.log(`[Trainer Service] Database query successful. Found ${trainers.length} trainers out of a total of ${total}.`);
 
-    // --- 3. Return Structured Response ---
-    // Return data in the exact format the frontend expects
     return {
       trainers,
       total,
@@ -65,30 +63,56 @@ export const getAll = async (queryParams) => {
     };
 
   } catch (dbError) {
-    // --- 4. Robust Error Handling ---
-    // If the database fails for any reason, log the detailed error and send a generic error to the client
     console.error("[Trainer Service] CRITICAL: Database connection or query failed!", dbError);
     throw new AppError('The database could not be reached or the query failed.', 500);
   }
 };
 
 export const getById = async (id) => {
-  const profile = await prisma.trainerProfile.findUnique({
-    where: { id },
+  console.log(`[Trainer Service] Looking up trainer with user ID: ${id}`);
+  
+  // First try to find by user ID
+  let profile = await prisma.trainerProfile.findFirst({
+    where: {
+      user: {
+        id: id
+      }
+    },
     include: {
       user: { select: { id: true, email: true } },
       plans: { orderBy: { price: 'asc' } },
       gyms: { select: { id: true, name: true } },
     },
   });
-  if (!profile) throw new AppError('Trainer not found.', 404);
+  
+  // If not found, try to find by trainer profile ID
+  if (!profile) {
+    console.log(`[Trainer Service] Not found by user ID, trying trainer profile ID: ${id}`);
+    profile = await prisma.trainerProfile.findUnique({
+      where: { id },
+      include: {
+        user: { select: { id: true, email: true } },
+        plans: { orderBy: { price: 'asc' } },
+        gyms: { select: { id: true, name: true } },
+      },
+    });
+  }
+  
+  if (!profile) {
+    console.log(`[Trainer Service] Trainer not found with ID: ${id}`);
+    throw new AppError('Trainer not found.', 404);
+  }
+  
+  console.log(`[Trainer Service] Found trainer profile:`, profile);
   return profile;
 };
 
-// Add this new service method
 export const getByUserId = async (userId) => {
+  // Ensure user ID is properly formatted (pad if necessary)
+  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
+  
   const profile = await prisma.trainerProfile.findUnique({
-    where: { userId },
+    where: { userId: formattedUserId },
     include: {
       user: { 
         select: { 
@@ -175,12 +199,18 @@ export const getTrainersByPlanIds = async (planIds) => {
 
 // --- Trainer-Specific Services ---
 export const updateProfile = async (userId, updateData) => {
-  await getTrainerProfileByUserId(userId);
-  return await prisma.trainerProfile.update({ where: { userId }, data: updateData });
+  // Ensure user ID is properly formatted (pad if necessary)
+  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
+  
+  await getTrainerProfileByUserId(formattedUserId);
+  return await prisma.trainerProfile.update({ where: { userId: formattedUserId }, data: updateData });
 };
 
 export const getDashboard = async (userId) => {
-  const trainerProfile = await getTrainerProfileByUserId(userId);
+  // Ensure user ID is properly formatted (pad if necessary)
+  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
+  
+  const trainerProfile = await getTrainerProfileByUserId(formattedUserId);
   const planIds = (await prisma.trainerPlan.findMany({
       where: { trainerProfileId: trainerProfile.id },
       select: { id: true }
@@ -193,7 +223,10 @@ export const getDashboard = async (userId) => {
 };
 
 export const getSubscribers = async (userId) => {
-  const trainerProfile = await getTrainerProfileByUserId(userId);
+  // Ensure user ID is properly formatted (pad if necessary)
+  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
+  
+  const trainerProfile = await getTrainerProfileByUserId(formattedUserId);
   return await prisma.subscription.findMany({
     where: { status: 'active', trainerPlan: { trainerProfileId: trainerProfile.id } },
     include: {
@@ -205,14 +238,20 @@ export const getSubscribers = async (userId) => {
 };
 
 export const createTrainingPlan = async (userId, planData) => {
-  const trainerProfile = await getTrainerProfileByUserId(userId);
+  // Ensure user ID is properly formatted (pad if necessary)
+  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
+  
+  const trainerProfile = await getTrainerProfileByUserId(formattedUserId);
   return await prisma.trainingPlan.create({
     data: { ...planData, trainerProfileId: trainerProfile.id },
   });
 };
 
 export const getMyTrainingPlans = async (userId) => {
-    const trainerProfile = await getTrainerProfileByUserId(userId);
+    // Ensure user ID is properly formatted (pad if necessary)
+    const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
+    
+    const trainerProfile = await getTrainerProfileByUserId(formattedUserId);
     return await prisma.trainingPlan.findMany({
         where: { trainerProfileId: trainerProfile.id },
         orderBy: { name: 'asc' }
@@ -220,7 +259,10 @@ export const getMyTrainingPlans = async (userId) => {
 };
 
 export const updateTrainingPlan = async (userId, planId, updateData) => {
-    const trainerProfile = await getTrainerProfileByUserId(userId);
+    // Ensure user ID is properly formatted (pad if necessary)
+    const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
+    
+    const trainerProfile = await getTrainerProfileByUserId(formattedUserId);
     const plan = await prisma.trainingPlan.findUnique({ where: { id: planId }});
     if(!plan || plan.trainerProfileId !== trainerProfile.id) {
         throw new AppError('Training plan not found or you do not own it.', 404);
@@ -229,7 +271,10 @@ export const updateTrainingPlan = async (userId, planId, updateData) => {
 };
 
 export const assignPlanToMember = async (userId, planId, memberId) => {
-  const trainerProfile = await getTrainerProfileByUserId(userId);
+  // Ensure user ID is properly formatted (pad if necessary)
+  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
+  
+  const trainerProfile = await getTrainerProfileByUserId(formattedUserId);
 
   const plan = await prisma.trainingPlan.findFirst({
     where: { id: planId, trainerProfileId: trainerProfile.id },
@@ -255,7 +300,10 @@ export const assignPlanToMember = async (userId, planId, memberId) => {
 };
 
 export const updatePlanTrial = async (userId, planId, trialData) => {
-    const trainerProfile = await getTrainerProfileByUserId(userId);
+    // Ensure user ID is properly formatted (pad if necessary)
+    const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
+    
+    const trainerProfile = await getTrainerProfileByUserId(formattedUserId);
     const plan = await prisma.trainerPlan.findUnique({ where: { id: planId }});
 
     if (!plan || plan.trainerProfileId !== trainerProfile.id) {
@@ -271,7 +319,10 @@ export const updatePlanTrial = async (userId, planId, trialData) => {
 };
 
 export const getTrainerDashboardStats = async (userId) => {
-  const trainerProfile = await prisma.trainerProfile.findUnique({ where: { userId } });
+  // Ensure user ID is properly formatted (pad if necessary)
+  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
+  
+  const trainerProfile = await prisma.trainerProfile.findUnique({ where: { userId: formattedUserId } });
   if (!trainerProfile) throw new AppError('Trainer profile not found.', 404);
 
   const plans = await prisma.trainerPlan.findMany({

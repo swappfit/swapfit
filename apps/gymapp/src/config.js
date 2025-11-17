@@ -7,7 +7,7 @@ const config = {
     audience: process.env.REACT_APP_AUTH0_AUDIENCE,
   },
   api: {
-    baseURL: 'https://84bdd51e89bc.ngrok-free.app/api',
+    baseURL: 'http://localhost:5000/api',
   },
 };
 

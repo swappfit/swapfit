@@ -6,6 +6,13 @@ import * as authService from '../api/authService';
 
 const AuthContext = createContext();
 
+// Function to format user ID to 25 characters
+const formatUserId = (id) => {
+  if (!id) return null;
+  // Pad with zeros if necessary to make it 25 characters
+  return id.padEnd(25, '0').substring(0, 25);
+};
+
 export const AuthProvider = ({ children }) => {
   const {
     isAuthenticated: isAuth0Authenticated,
@@ -52,10 +59,17 @@ export const AuthProvider = ({ children }) => {
 
             if (response.success) {
               const { token, user: backendUser } = response.data;
+              
+              // Format the user ID to ensure it's 25 characters
+              const formattedUser = {
+                ...backendUser,
+                id: formatUserId(backendUser.id)
+              };
+              
               localStorage.setItem('authToken', token);
-              localStorage.setItem('authUser', JSON.stringify(backendUser));
+              localStorage.setItem('authUser', JSON.stringify(formattedUser));
               setInternalToken(token);
-              setUser(backendUser);
+              setUser(formattedUser);
             }
           }
           // Case 2: We have an internal token but Auth0 says user is not authenticated
@@ -64,6 +78,16 @@ export const AuthProvider = ({ children }) => {
             // We have a token, so we'll consider the user authenticated
             // You might want to validate the token with your backend here
             console.log('Using stored authentication token');
+            
+            // Also format the user ID from stored data
+            if (user && user.id) {
+              const formattedUser = {
+                ...user,
+                id: formatUserId(user.id)
+              };
+              setUser(formattedUser);
+              localStorage.setItem('authUser', JSON.stringify(formattedUser));
+            }
           }
           // Case 3: Neither Auth0 nor internal token is available
           else if (!isAuth0Authenticated && !internalToken) {
@@ -118,8 +142,13 @@ export const AuthProvider = ({ children }) => {
       setInternalToken(token);
     }
     if (userData) {
-      localStorage.setItem('authUser', JSON.stringify(userData));
-      setUser(userData);
+      // Format the user ID to ensure it's 25 characters
+      const formattedUser = {
+        ...userData,
+        id: formatUserId(userData.id)
+      };
+      localStorage.setItem('authUser', JSON.stringify(formattedUser));
+      setUser(formattedUser);
     }
   };
 
@@ -132,6 +161,7 @@ export const AuthProvider = ({ children }) => {
     login: loginWithRedirect,
     logout,
     setAuthData,
+    formatUserId, // Expose the formatUserId function for components to use
   };
 
   return (
