@@ -1,4 +1,3 @@
-// src/controllers/userController.js
 import * as userService from '../services/userService.js';
 import * as authService from '../services/authService.js';
 import catchAsync from '../utils/catchAsync.js';
@@ -6,15 +5,13 @@ import catchAsync from '../utils/catchAsync.js';
 // Helper function to get user ID from either JWT or Auth0
 const getUserId = async (req) => {
   if (req.user?.id) {
-    // Ensure user ID is properly formatted (pad if necessary)
-    return req.user.id.padEnd(25, '0').substring(0, 25);
+    return req.user.id;
   }
   
   if (req.auth?.payload) {
     const user = await authService.getUserByAuth0Id(req.auth.payload.sub);
     if (!user) throw new Error('User not found for the given Auth0 ID.');
-    // Ensure user ID is properly formatted (pad if necessary)
-    return user.id.padEnd(25, '0').substring(0, 25);
+    return user.id;
   }
   
   throw new Error('Authentication failed: No user identifier found in request.');
@@ -36,15 +33,7 @@ export const updateMyProfile = catchAsync(async (req, res) => {
 export const getMyProfile = catchAsync(async (req, res) => {
   const userId = await getUserId(req);
   const { password, ...userProfile } = await userService.getUserProfile(userId);
-  
-  // Log the user profile to debug
-  console.log('User profile from service:', userProfile);
-  
-  // Make sure we're returning the correct structure
-  res.status(200).json({ 
-    success: true, 
-    data: userProfile 
-  });
+  res.status(200).json({ success: true, data: userProfile });
 });
 
 export const getUserProfile = catchAsync(async (req, res) => {

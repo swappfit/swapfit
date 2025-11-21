@@ -1,4 +1,4 @@
-// subscriptionRoutes.js - Add the admin route
+// src/routes/subscriptionRoutes.js
 import express from 'express';
 import * as subscriptionController from '../controllers/subscriptionController.js';
 import authGatekeeper from '../middlewares/authGatekeeper.js';
@@ -9,7 +9,7 @@ const router = express.Router();
 // It must come BEFORE any global JSON parsers if they interfere with raw bodies.
 router.post(
     '/webhooks/chargebee', 
-    express.raw({type: 'application/json'}), // Use express.raw to get the raw buffer for signature verification
+    express.raw({type: 'application/json'}), // Use express.raw to get raw buffer for signature verification
     subscriptionController.handleChargebeeWebhook
 );
 
@@ -23,7 +23,7 @@ router.get('/admin/all-subscriptions', subscriptionController.getAllSubscription
 // A member uses this to start the subscription process for a specific Gym or Trainer plan.
 router.post('/create-checkout-session', subscriptionController.createCheckoutSession);
 
-// GET /api/subscriptions/portal-session
+// POST /api/subscriptions/portal-session
 // A member uses this to manage their existing subscriptions (e.g., cancel, update card).
 router.post('/portal-session', subscriptionController.createPortalSession);
 

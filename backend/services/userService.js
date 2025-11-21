@@ -8,10 +8,7 @@ const prisma = new PrismaClient();
  * Changes the password for a logged-in user.
  */
 export const changeUserPassword = async (userId, currentPassword, newPassword) => {
-  // Ensure user ID is properly formatted (pad if necessary)
-  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
-  
-  const user = await prisma.user.findUnique({ where: { id: formattedUserId } });
+  const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user || !user.password) {
     throw new AppError('Password change is not available for this account.', 403);
   }
@@ -21,7 +18,7 @@ export const changeUserPassword = async (userId, currentPassword, newPassword) =
   }
   const hashedPassword = await bcrypt.hash(newPassword, 10);
   await prisma.user.update({
-    where: { id: formattedUserId },
+    where: { id: userId },
     data: { password: hashedPassword },
   });
 };
@@ -31,16 +28,13 @@ export const changeUserPassword = async (userId, currentPassword, newPassword) =
  */
 export const updateUserProfile = async (user, updateData) => {
   const { id: userId, role } = user;
-  // Ensure user ID is properly formatted (pad if necessary)
-  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
-  
   switch (role) {
     case 'MEMBER':
-      return await prisma.memberProfile.update({ where: { userId: formattedUserId }, data: updateData });
+      return await prisma.memberProfile.update({ where: { userId }, data: updateData });
     case 'TRAINER':
-      return await prisma.trainerProfile.update({ where: { userId: formattedUserId }, data: updateData });
+      return await prisma.trainerProfile.update({ where: { userId }, data: updateData });
     case 'GYM_OWNER':
-      const gym = await prisma.gym.findFirst({ where: { managerId: formattedUserId } });
+      const gym = await prisma.gym.findFirst({ where: { managerId: userId } });
       if (!gym) throw new AppError('No managed gym found for this user.', 404);
       return await prisma.gym.update({ where: { id: gym.id }, data: updateData });
     default:
@@ -52,26 +46,24 @@ export const updateUserProfile = async (user, updateData) => {
  * @description Fetches the full user object, including their role-specific profile,
  * active subscriptions, and available multi-gym tiers for purchase.
  */
-// In your services/userService.js
-
+/**
+ * @description Fetches the full user object, including their role-specific profile,
+ * active subscriptions, and available multi-gym tiers for purchase.
+ */
 export const getUserProfile = async (userId) => {
-  // Ensure user ID is properly formatted (pad if necessary)
-  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
-  
-  console.log(`[UserService] Attempting to fetch full profile for User ID: ${formattedUserId}`);
-  if (!formattedUserId) throw new AppError("User not identified.", 401);
+  console.log(`[UserService] Attempting to fetch full profile for User ID: ${userId}`);
+  if (!userId) throw new AppError("User not identified.", 401);
   try {
+    // Get the predefined tiers
+    const tiers = await getMultiGymTiers();
+    
     // Use a transaction to fetch user data and available tiers in parallel
     const [user, availableTiers] = await prisma.$transaction([
       prisma.user.findUnique({
-        where: { id: formattedUserId },
+        where: { id: userId },
         include: {
             memberProfile: true,
-            trainerProfile: {
-              include: {
-                plans: true // Include trainer plans
-              }
-            },
+            trainerProfile: true,
             managedGyms: { take: 1 },
             merchantProfile: true,
             subscriptions: {
@@ -79,7 +71,7 @@ export const getUserProfile = async (userId) => {
               include: {
                 gymPlan: { select: { id: true, name: true, gym: { select: { id: true, name: true } } } },
                 trainerPlan: { select: { id: true, name: true } },
-                multiGymTier: true
+                // We'll handle multiGymTier in the controller
               }
             },
         },
@@ -95,61 +87,101 @@ export const getUserProfile = async (userId) => {
       throw new AppError("User not found.", 404);
     }
     
-    // Log the user object to debug
-    console.log('User object from database:', user);
-    
     // Process subscriptions to handle multi-gym tier
-    const processedSubscriptions = user.subscriptions.map(sub => {
+    const processedSubscriptions = await Promise.all(user.subscriptions.map(async sub => {
       const processedSub = { ...sub };
       
       // Handle multi-gym tier if it exists
       if (sub.multiGymTierId) {
-        // Get the tier details from the predefined tiers
-        const tiers = getMultiGymTiers();
-        const tier = tiers.find(t => t.id === sub.multiGymTierId);
-        processedSub.multiGymTier = tier || null;
+        // Get the tier details from the database
+        const dbTier = await prisma.multiGymTier.findUnique({
+          where: { id: sub.multiGymTierId }
+        });
+        
+        if (dbTier) {
+          // Find the matching predefined tier
+          const tier = tiers.find(t => t.id === dbTier.name.toLowerCase());
+          processedSub.multiGymTier = tier || null;
+        }
       }
       
       return processedSub;
-    });
+    }));
     
-    // Fetch ALL gyms that accept multi-gym access
-    console.log(`[UserService] Fetching all gyms that accept multi-gym access`);
+    // Find the active multi-gym subscription
+    const activeMultiGymSub = processedSubscriptions.find(sub => sub.multiGymTier && sub.status === 'active');
     
-    const allMultiGymGyms = await prisma.gym.findMany({
-      where: {
-        acceptsMultigym: true, // Only get gyms that accept multi-gym
-      },
-      select: {
-        id: true,
-        name: true,
-        address: true,
-        photos: true,
-        badges: true,
-        status: true,
-        latitude: true,
-        longitude: true
-      }
-    });
+    // Fetch accessible gyms based on multi-gym subscription
+    let accessibleGyms = [];
     
-    console.log(`[UserService] Found ${allMultiGymGyms.length} gyms that accept multi-gym access`);
-    console.log(`[UserService] Multi-gym gyms:`, allMultiGymGyms.map(g => ({ 
-      id: g.id, 
-      name: g.name, 
-      acceptsMultigym: g.acceptsMultigym,
-      status: g.status 
-    })));
+    if (activeMultiGymSub) {
+      // Find gyms that match the user's tier
+      const tierName = activeMultiGymSub.multiGymTier.name;
+      console.log(`[UserService] Looking for gyms with tier: ${tierName}`);
+      
+      // First, let's fetch all approved gyms to debug
+      const allApprovedGyms = await prisma.gym.findMany({
+        where: { status: 'approved' },
+        select: {
+          id: true,
+          name: true,
+          address: true,
+          photos: true,
+          badges: true
+        }
+      });
+      
+      console.log(`[UserService] Found ${allApprovedGyms.length} approved gyms`);
+      allApprovedGyms.forEach(gym => {
+        console.log(`[UserService] Gym: ${gym.name}, Badges: ${JSON.stringify(gym.badges)}`);
+      });
+      
+      // Filter gyms manually to check if they have the tier badge
+      accessibleGyms = allApprovedGyms.filter(gym => {
+        if (!gym.badges) return false;
+        
+        // Handle different badge formats
+        let badges = [];
+        if (Array.isArray(gym.badges)) {
+          badges = gym.badges;
+        } else if (typeof gym.badges === 'string') {
+          try {
+            badges = JSON.parse(gym.badges);
+          } catch (e) {
+            // If parsing fails, treat it as a single badge
+            badges = [gym.badges];
+          }
+        }
+        
+        // Check if any badge matches the tier name
+        const hasMatchingBadge = badges.some(badge => {
+          const badgeLower = badge.toLowerCase();
+          const tierLower = tierName.toLowerCase();
+          return badgeLower === tierLower || 
+                 badgeLower === tierLower.charAt(0).toUpperCase() + tierLower.slice(1) ||
+                 badge === tierName;
+        });
+        
+        if (hasMatchingBadge) {
+          console.log(`[UserService] Gym ${gym.name} matches tier ${tierName}`);
+        }
+        
+        return hasMatchingBadge;
+      });
+      
+      console.log(`[UserService] Found ${accessibleGyms.length} accessible gyms for tier ${tierName}`);
+    }
     
-    console.log(`[UserService] Successfully fetched full profile for User ID: ${formattedUserId}`);
+    console.log(`[UserService] Successfully fetched full profile for User ID: ${userId}`);
     
-    // Exclude password before sending back to client
+    // Exclude password before sending back to the client
     const { password, ...userResponse } = user;
 
     // Add the available tiers and accessible gyms to the response object
     const profileWithTiers = {
         ...userResponse,
         subscriptions: processedSubscriptions,
-        accessibleGyms: allMultiGymGyms, // All gyms that accept multi-gym
+        accessibleGyms,
         availableMultiGymTiers: availableTiers
     };
 
@@ -164,16 +196,13 @@ export const getUserProfile = async (userId) => {
  * @description Fetches all of the user's check-ins (active and completed), including gym details.
  */
 export const getUserCheckIns = async (userId) => {
-  // Ensure user ID is properly formatted (pad if necessary)
-  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
-  
   try {
-    console.log(`[UserService] Fetching ALL check-ins for user ${formattedUserId}`);
+    console.log(`[UserService] Fetching ALL check-ins for user ${userId}`);
     
     // ✅ CHANGE: Removed the date filter to fetch all check-ins
     const checkIns = await prisma.checkIn.findMany({
       where: {
-        userId: formattedUserId, // Only filter by user ID
+        userId, // Only filter by user ID
       },
       include: {
         gym: {
@@ -196,7 +225,7 @@ export const getUserCheckIns = async (userId) => {
       checkOut: checkIn.checkOut ? checkIn.checkOut.toISOString() : null
     }));
 
-    console.log(`[UserService] Found a total of ${serializedCheckIns.length} check-ins for user ${formattedUserId}.`);
+    console.log(`[UserService] Found a total of ${serializedCheckIns.length} check-ins for user ${userId}.`);
     serializedCheckIns.forEach(checkIn => {
         console.log(`[UserService] - CheckIn ID: ${checkIn.id}, Gym: ${checkIn.gym.name}, CheckIn: ${checkIn.checkIn}, CheckOut: ${checkIn.checkOut || 'Still active'}`);
     });
@@ -212,19 +241,16 @@ export const getUserCheckIns = async (userId) => {
  * @description Placeholder for fetching user statistics.
  */
 export const getUserStats = async (userId) => {
-  // Ensure user ID is properly formatted (pad if necessary)
-  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
-  
     try {
-        const totalCheckIns = await prisma.checkIn.count({ where: { userId: formattedUserId } });
+        const totalCheckIns = await prisma.checkIn.count({ where: { userId } });
         const favoriteGym = await prisma.gym.findFirst({
-            where: { checkIns: { some: { userId: formattedUserId } } },
+            where: { checkIns: { some: { userId } } },
             orderBy: { checkIns: { _count: 'desc' } },
             select: { id: true, name: true }
         });
         const monthlyWorkouts = await prisma.checkIn.count({
             where: {
-                userId: formattedUserId,
+                userId,
                 checkIn: {
                     gte: new Date(new Date().setDate(1)) // First day of the current month
                 }
@@ -241,7 +267,7 @@ export const getUserStats = async (userId) => {
 /**
  * @description Helper function to get predefined multi-gym tiers
  */
-const getMultiGymTiers = () => {
+const getMultiGymTiers = async () => {
     // Return predefined tiers
     return [
         {
@@ -276,10 +302,10 @@ const getMultiGymTiers = () => {
             chargebeePlanId: process.env.CHARGEBEE_PLATINUM_PLAN_ID,
             description: 'Access to all Platinum tier gyms',
             features: [
-                'Access to ALL gyms (200+)',
+                'Access to all Platinum tier gyms',
                 'VIP amenities access',
                 'Weekly fitness assessment',
-                '2 personal training sessions/month',
+                '2 personal training sessions per month',
                 'Nutrition consultation'
             ]
         }
@@ -290,12 +316,9 @@ const getMultiGymTiers = () => {
  * @description Get user's subscriptions
  */
 export const getUserSubscriptions = async (userId) => {
-  // Ensure user ID is properly formatted (pad if necessary)
-  const formattedUserId = userId.padEnd(25, '0').substring(0, 25);
-  
     try {
         const user = await prisma.user.findUnique({
-            where: { id: formattedUserId },
+            where: { id: userId },
             include: {
                 memberProfile: true,
                 subscriptions: {
