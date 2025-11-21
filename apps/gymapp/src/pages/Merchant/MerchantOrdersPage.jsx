@@ -1,25 +1,40 @@
 // src/pages/Merchant/MerchantOrdersPage.jsx
-import React, { useState } from 'react';
-
-const MOCK_ORDERS = [
-  { id: "#ORD-8815", customer: "Sarah K", date: "Apr 10, 2024", total: 89.98, items: 2, status: "Shipped" },
-  { id: "#ORD-8814", customer: "Mark T", date: "Apr 9, 2024", total: 24.99, items: 1, status: "Processing" },
-  { id: "#ORD-8813", customer: "Jessica L", date: "Apr 8, 2024", total: 119.97, items: 3, status: "Delivered" },
-  { id: "#ORD-8812", customer: "David R", date: "Apr 7, 2024", total: 69.99, items: 1, status: "Cancelled" },
-  { id: "#ORD-8811", customer: "Alex M", date: "Apr 6, 2024", total: 45.50, items: 1, status: "Delivered" },
-  { id: "#ORD-8810", customer: "Taylor S", date: "Apr 5, 2024", total: 159.99, items: 4, status: "Shipped" },
-];
+import React, { useState, useEffect } from 'react';
+import * as orderService from '../../api/orderService';
 
 const STATUS_OPTIONS = ["All", "Processing", "Shipped", "Delivered", "Cancelled"];
 
 export default function MerchantOrdersPage() {
+  const [orders, setOrders] = useState([]);
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [loading, setLoading] = useState(true);
 
-  const filteredOrders = MOCK_ORDERS.filter(order => {
-    const matchesSearch = order.customer.toLowerCase().includes(searchTerm.toLowerCase()) || order.id.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = selectedStatus === 'All' || order.status === selectedStatus;
+  // Fetch orders
+  useEffect(() => {
+    const fetchOrders = async () => {
+      try {
+        const data = await orderService.getMyOrders();
+        setOrders(data);
+      } catch (err) {
+        console.error('Failed to load orders:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchOrders();
+  }, []);
+
+  const filteredOrders = orders.filter(order => {
+    const matchesSearch =
+      order.customer?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      order.id?.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesStatus =
+      selectedStatus === 'All' || order.status === selectedStatus;
+
     return matchesSearch && matchesStatus;
   });
 
@@ -31,8 +46,23 @@ export default function MerchantOrdersPage() {
     );
   };
 
-  const handleBulkAction = (action) => {
-    console.log(`Bulk ${action} for orders:`, selectedOrders);
+  // Bulk action
+  const handleBulkAction = async (action) => {
+    try {
+      await orderService.bulkUpdateOrders(selectedOrders, action);
+
+      // 💡 Update UI
+      setOrders(prev =>
+        prev.map(order =>
+          selectedOrders.includes(order.id)
+            ? { ...order, status: action === 'ship' ? 'Shipped' : 'Cancelled' }
+            : order
+        )
+      );
+      setSelectedOrders([]);
+    } catch (err) {
+      console.error('Bulk action failed:', err);
+    }
   };
 
   const getStatusColor = (status) => {
@@ -44,6 +74,14 @@ export default function MerchantOrdersPage() {
       default: return "bg-gray-600 text-gray-100";
     }
   };
+
+  if (loading) {
+    return (
+      <div className="text-center py-20 text-gray-400 text-lg">
+        Loading orders...
+      </div>
+    );
+  }
 
   return (
     <div className="w-full animate-fade-in">
@@ -128,7 +166,7 @@ export default function MerchantOrdersPage() {
                   <div>
                     <div className="flex items-center gap-4">
                       <h3 className="text-white font-bold">{order.id}</h3>
-                      <span className="text-gray-400">• {order.items} item{order.items !== 1 ? 's' : ''}</span>
+                      <span className="text-gray-400">• {order.items} items</span>
                     </div>
                     <p className="text-gray-300 mt-1">Customer: {order.customer}</p>
                     <p className="text-gray-400 text-sm">{order.date}</p>

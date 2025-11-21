@@ -18,7 +18,7 @@ export default function AddProductModal({ isOpen, onClose, onProductAdded }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
-  // ✅ NEW: State for image upload
+  // State for image upload
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -30,14 +30,14 @@ export default function AddProductModal({ isOpen, onClose, onProductAdded }) {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // ✅ NEW: Handle file selection and upload
+  // Handle file selection and upload
   const handleImageChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
       setImageFile(file);
       setImagePreview(URL.createObjectURL(file)); // For immediate preview
 
-      // Start the upload process
+      // Start upload process
       setUploadingImage(true);
       setError('');
 
@@ -53,7 +53,7 @@ export default function AddProductModal({ isOpen, onClose, onProductAdded }) {
         const imageData = await response.json();
         
         if (imageData.secure_url) {
-          // On success, update the form data with the image URL
+          // On success, update form data with image URL
           setFormData(prev => ({ ...prev, images: [imageData.secure_url] }));
         } else {
           throw new Error('Image upload failed.');
@@ -80,7 +80,7 @@ export default function AddProductModal({ isOpen, onClose, onProductAdded }) {
         throw new Error("Please fill in all required fields.");
       }
       
-      // The images array is now populated from the upload
+      // The images array is now populated from upload
       if (formData.images.length === 0) {
         throw new Error("Please upload a product image.");
       }
@@ -107,43 +107,45 @@ export default function AddProductModal({ isOpen, onClose, onProductAdded }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 animate-fade-in-fast">
-      <div className="bg-gray-800 rounded-xl p-6 w-full max-w-lg shadow-2xl border border-gray-700 text-white">
-        <h3 className="text-xl font-bold mb-6">Add New Product</h3>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && <p className="text-red-400 bg-red-900/50 p-3 rounded-lg text-sm">{error}</p>}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 animate-fade-in-fast p-4">
+      <div className="bg-gray-800 rounded-xl p-4 w-full max-w-md shadow-2xl border border-gray-700 text-white max-h-[90vh] overflow-y-auto">
+        <h3 className="text-xl font-bold mb-4">Add New Product</h3>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          {error && <p className="text-red-400 bg-red-900/50 p-2 rounded-lg text-sm">{error}</p>}
           
-          {/* ✅ NEW: Image Upload Section */}
+          {/* Image Upload Section */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Product Image</label>
+            <label className="block text-sm font-medium text-gray-300 mb-1">Product Image</label>
             <input 
               type="file" 
               onChange={handleImageChange} 
               accept="image/*" 
-              className="w-full bg-gray-700 p-3 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-teal-600 file:text-white hover:file:bg-teal-700"
+              className="w-full bg-gray-700 p-2 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-teal-600 file:text-white hover:file:bg-teal-700"
             />
-            {uploadingImage && <p className="text-teal-400 text-sm mt-2">Uploading image...</p>}
+            {uploadingImage && <p className="text-teal-400 text-sm mt-1">Uploading image...</p>}
             {imagePreview && !uploadingImage && (
-              <img src={imagePreview} alt="Preview" className="mt-4 h-32 w-32 object-cover rounded-lg mx-auto" />
+              <div className="mt-2 flex justify-center">
+                <img src={imagePreview} alt="Preview" className="h-20 w-20 object-cover rounded-lg" />
+              </div>
             )}
           </div>
 
-          <input name="name" value={formData.name} onChange={handleChange} placeholder="Product Name" className="w-full bg-gray-700 p-3 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-500" required />
+          <input name="name" value={formData.name} onChange={handleChange} placeholder="Product Name" className="w-full bg-gray-700 p-2 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-500" required />
           
-          <textarea name="description" value={formData.description} onChange={handleChange} placeholder="Product Description (Optional)" className="w-full bg-gray-700 p-3 rounded-lg border border-gray-600 h-24 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+          <textarea name="description" value={formData.description} onChange={handleChange} placeholder="Product Description (Optional)" className="w-full bg-gray-700 p-2 rounded-lg border border-gray-600 h-20 focus:outline-none focus:ring-2 focus:ring-teal-500" />
           
-          <div className="grid grid-cols-2 gap-4">
-            <input type="number" name="price" value={formData.price} onChange={handleChange} placeholder="Price ($)" step="0.01" className="w-full bg-gray-700 p-3 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-500" required />
-            <input type="number" name="stock" value={formData.stock} onChange={handleChange} placeholder="Stock Quantity" step="1" className="w-full bg-gray-700 p-3 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-500" required />
+          <div className="grid grid-cols-2 gap-2">
+            <input type="number" name="price" value={formData.price} onChange={handleChange} placeholder="Price ($)" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-500" required />
+            <input type="number" name="stock" value={formData.stock} onChange={handleChange} placeholder="Stock Quantity" step="1" className="w-full bg-gray-700 p-2 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-500" required />
           </div>
           
-          <select name="category" value={formData.category} onChange={handleChange} className="w-full bg-gray-700 p-3 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-500">
+          <select name="category" value={formData.category} onChange={handleChange} className="w-full bg-gray-700 p-2 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-500">
             {["Supplements", "Equipment", "Accessories", "Apparel"].map(cat => <option key={cat} value={cat}>{cat}</option>)}
           </select>
           
-          <div className="flex justify-end gap-4 pt-4">
-            <button type="button" onClick={onClose} className="bg-gray-600 hover:bg-gray-500 font-semibold py-2 px-5 rounded-lg transition">Cancel</button>
-            <button type="submit" disabled={loading || uploadingImage} className="bg-teal-600 hover:bg-teal-500 font-semibold py-2 px-5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className="bg-gray-600 hover:bg-gray-500 font-semibold py-2 px-4 rounded-lg transition">Cancel</button>
+            <button type="submit" disabled={loading || uploadingImage} className="bg-teal-600 hover:bg-teal-500 font-semibold py-2 px-4 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
               {loading ? 'Adding...' : 'Add Product'}
             </button>
           </div>

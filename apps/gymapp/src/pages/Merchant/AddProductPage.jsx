@@ -18,21 +18,29 @@ export default function MerchantProductsPage() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const fetchProducts = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      const response = await productService.getMyProducts();
-      if (response.success) {
-        setProducts(response.data);
-      }
-    } catch (err) {
-      setError("Failed to fetch products.");
-      console.error(err);
-    } finally {
-      setLoading(false);
+ const fetchProducts = async () => {
+  console.log("🔥 fetchProducts() called");
+
+  try {
+    setLoading(true);
+    setError('');
+
+    console.log("📡 About to call getMyProducts()");
+    const response = await productService.getMyProducts();
+
+    console.log("✅ getMyProducts() response:", response);
+
+    if (response.success) {
+      setProducts(response.data);
     }
-  };
+
+  } catch (err) {
+    setError("Failed to fetch products.");
+    console.error("❌ fetchProducts ERROR:", err);
+  } finally {
+    setLoading(false);
+  }
+};
 
   useEffect(() => {
     fetchProducts();

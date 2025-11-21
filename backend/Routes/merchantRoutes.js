@@ -24,7 +24,8 @@ router.put('/products/:productId', merchantController.updateMyProduct);
 router.delete('/products/:productId', merchantController.deleteMyProduct);
 
 // --- Order Management for the Logged-in Merchant ---
-// GET /api/merchant/orders -> Gets all orders for THIS merchant
-
+router.get("/orders",merchantController.getMyOrders);
+router.get("/orders/:orderId",merchantController.getOrderById);
+router.put("/orders/:orderId/status",merchantController.updateOrderStatus);
 
 export default router;
