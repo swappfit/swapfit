@@ -108,3 +108,40 @@ export const getMyOrders = async (userId) => {
         orderBy: { createdAt: 'desc' }
     });
 };
+export const getOrdersForMerchant = async (merchantId) => {
+  return await prisma.order.findMany({
+    where: { merchantId },
+    include: {
+      items: { include: { product: true } },
+      customer: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+};
+
+export const getOrderForMerchant = async (merchantId, orderId) => {
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, merchantId },
+    include: {
+      items: { include: { product: true } },
+      customer: true,
+    },
+  });
+
+  if (!order) throw new AppError("Order not found", 404);
+  return order;
+};
+
+export const updateOrderStatusForMerchant = async (merchantId, orderId, status) => {
+  // Ensure order belongs to merchant
+  const exists = await prisma.order.findFirst({
+    where: { id: orderId, merchantId },
+  });
+
+  if (!exists) throw new AppError("Order not found", 404);
+
+  return await prisma.order.update({
+    where: { id: orderId },
+    data: { status },
+  });
+};

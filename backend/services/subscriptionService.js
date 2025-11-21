@@ -180,62 +180,106 @@ export const createPortalSession = async (userId) => {
     return portalSessionResult.portal_session.access_url;
 };
 
-const processMarketplaceOrder = async (invoice) => {
-    console.log(`[Webhook] Processing marketplace order for invoice: ${invoice.id}`);
-    
-    const { line_items, customer_id, total, id: chargebeeInvoiceId } = invoice;
+/* =========================================================
+   NEW LOGIC: CREATE ORDER ON ONE-TIME INVOICE
+   ========================================================= */
+/**
+ * FULL marketplace order creator based on invoice items
+ * Works for one-time purchases (marketplace)
+ */
+async function createFullOrderFromInvoice(invoice) {
+  try {
+    console.log("🟦 createFullOrderFromInvoice() START for invoice:", invoice.id);
 
-    const user = await prisma.user.findUnique({ where: { chargebeeCustomerId: customer_id } });
-    if (!user) {
-        throw new Error(`User not found for Chargebee customer ID: ${customer_id}`);
-    }
-
-    const newOrder = await prisma.$transaction(async (tx) => {
-        const existingOrder = await tx.order.findUnique({ where: { chargebeeInvoiceId } });
-        if (existingOrder) {
-            console.log(`[Webhook] Order for invoice ${chargebeeInvoiceId} already exists. Skipping.`);
-            return existingOrder;
-        }
-
-        const order = await tx.order.create({
-            data: {
-                userId: user.id,
-                totalAmount: total / 100,
-                status: 'Paid',
-                chargebeeInvoiceId: chargebeeInvoiceId,
-            },
-        });
-
-        const orderItemsToCreate = line_items.map(lineItem => {
-            const { internal_product_id, internal_merchant_id, internal_cart_item_id } = lineItem.metadata;
-            return {
-                orderId: order.id,
-                productId: internal_product_id,
-                name: lineItem.description,
-                price: lineItem.amount / 100,
-                quantity: lineItem.quantity,
-            };
-        });
-
-        await tx.orderItem.createMany({ data: orderItemsToCreate });
-
-        const cartItemIdsToDelete = line_items.map(li => li.metadata.internal_cart_item_id);
-        if (cartItemIdsToDelete.length > 0) {
-            await tx.cartItem.deleteMany({
-                where: {
-                    id: { in: cartItemIdsToDelete },
-                    userId: user.id,
-                },
-            });
-            console.log(`[Webhook] Cleaned up ${cartItemIdsToDelete.length} items from user's cart.`);
-        }
-        
-        console.log(`[Webhook] ✅ Marketplace Order ${order.id} created successfully.`);
-        return order;
+    // 1. CUSTOMER LOOKUP
+    const user = await prisma.user.findFirst({
+      where: { chargebeeCustomerId: invoice.customer_id }
     });
 
-    return newOrder;
-};
+    if (!user) {
+      console.error("❌ No user found for invoice:", invoice.customer_id);
+      return;
+    }
+
+    console.log("🟩 User found:", user.id);
+
+    // 2. GET CART ITEMS FOR THIS USER
+    const cartItems = await prisma.cartItem.findMany({
+      where: { userId: user.id },
+      include: {
+        product: {
+          include: {
+            seller: true,
+          }
+        }
+      }
+    });
+
+    if (!cartItems.length) {
+      console.warn("⚠️ No cart items found — skipping order creation.");
+      return;
+    }
+
+    console.log(`🛒 Found ${cartItems.length} cart item(s)`);
+
+    // 3. CREATE ORDER
+    const order = await prisma.order.create({
+      data: {
+        userId: user.id,
+        invoiceId: invoice.id,
+        customerId: invoice.customer_id,
+        totalAmount: invoice.amount_paid / 100,
+        currencyCode: invoice.currency_code,
+        status: "paid",
+      }
+    });
+
+    console.log("🟩 Order created:", order.id);
+
+    // 4. INSERT ORDER ITEMS
+    const orderItemsData = cartItems.map(ci => ({
+      orderId: order.id,
+      productId: ci.productId,
+      merchantId: ci.product.merchantId,
+      quantity: ci.quantity,
+      price: ci.product.price,
+      subtotal: ci.product.price * ci.quantity
+    }));
+
+    await prisma.orderItem.createMany({
+      data: orderItemsData
+    });
+
+    console.log("🟩 Order items created:", orderItemsData.length);
+
+    // 5. CLEAR CART
+    await prisma.cartItem.deleteMany({
+      where: { userId: user.id }
+    });
+
+    console.log("🧹 Cart cleared for user:", user.id);
+
+    // 6. RECORD PAYMENT TRANSACTION
+    await prisma.transaction.create({
+      data: {
+        userId: user.id,
+        orderId: order.id,
+        amount: invoice.amount_paid / 100,
+        currencyCode: invoice.currency_code,
+        paymentProvider: "chargebee",
+        paymentStatus: "success",
+        referenceId: invoice.id,
+      }
+    });
+
+    console.log("💳 Payment transaction stored.");
+
+    return order;
+
+  } catch (err) {
+    console.error("❌ Full order creation FAILED:", err);
+  }
+}
 
 export const processWebhook = async (payload) => {
     const { parsedBody, rawBody, headers } = payload;
@@ -285,6 +329,40 @@ export const processWebhook = async (payload) => {
                 }
             }
             return { success: true, message: `Processed customer creation` };
+        }
+
+        // --- Handle Invoice / One-time marketplace orders ---
+        // NOTE: handle invoice_generated BEFORE subscription-only branch so it's not skipped
+        if (event_type === 'invoice_generated') {
+            const invoice = content.invoice;
+            if (!invoice) {
+                throw new AppError('invoice payload missing in invoice_generated event', 400);
+            }
+
+            console.log(`[Webhook] invoice_generated received for invoice id: ${invoice.id}`);
+            // Determine if this invoice should create a marketplace order:
+            // - If invoice is NOT linked to a subscription (invoice.subscription_id is falsy)
+            // - OR invoice.recurring === false (explicitly not recurring)
+            const isOneTime = !invoice.subscription_id || invoice.recurring === false;
+
+            // Also ensure there are line_items to process
+            if (isOneTime && Array.isArray(invoice.line_items) && invoice.line_items.length > 0) {
+                try {
+                    console.log(`[Webhook] Detected one-time invoice (create order). Calling processMarketplaceOrder for invoice ${invoice.id}`);
+                    const order = await createFullOrderFromInvoice(invoice);
+                    console.log(`[Webhook] ✅ Marketplace order created for invoice ${invoice.id}: order id ${order?.id || 'unknown'}`);
+                    return { success: true, message: `Marketplace order created for invoice ${invoice.id}` };
+                } catch (orderErr) {
+                    console.error(`[Webhook] ❌ Failed to create marketplace order for invoice ${invoice.id}:`, orderErr);
+                    // Do not throw here unless you want the webhook to be retried.
+                    // Return failure so caller can handle retry behavior if desired.
+                    throw new AppError(`Failed to create marketplace order: ${orderErr.message}`, 500);
+                }
+            } else {
+                console.log(`[Webhook] Skipping order creation for invoice ${invoice.id} (isOneTime=${isOneTime}, line_items=${invoice.line_items?.length || 0})`);
+                // still return success so webhook is acknowledged
+                return { success: true, message: `Invoice ${invoice.id} received but not treated as one-time marketplace order` };
+            }
         }
 
         // --- Handle Subscription Events ---
@@ -433,7 +511,7 @@ export const processWebhook = async (payload) => {
         }
         throw error;
     }
-}; 
+};
 
 // Export the getMultiGymTiers function for use in controllers
 export { getMultiGymTiers };

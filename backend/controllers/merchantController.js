@@ -84,3 +84,61 @@ export const deleteMyProduct = catchAsync(async (req, res) => {
     data: { token: newToken, user: updatedUser },
   });
 });
+// --------------------------------------------------------
+// GET ALL ORDERS FOR MERCHANT
+// --------------------------------------------------------
+export const getMyOrders = catchAsync(async (req, res) => {
+  const merchantId = req.user.id;
+
+  const orders = await merchantService.getMyOrders(merchantId);
+
+  const updatedUser = await authService.getFullUserById(merchantId);
+  const newToken = generateInternalToken(updatedUser);
+
+  res.status(200).json({
+    success: true,
+    data: { token: newToken, user: updatedUser, orders },
+  });
+});
+
+// --------------------------------------------------------
+// GET AN ORDER BY ID
+// --------------------------------------------------------
+export const getOrderById = catchAsync(async (req, res) => {
+  const merchantId = req.user.id;
+  const { orderId } = req.params;
+
+  const order = await merchantService.getOrderById(merchantId, orderId);
+
+  const updatedUser = await authService.getFullUserById(merchantId);
+  const newToken = generateInternalToken(updatedUser);
+
+  res.status(200).json({
+    success: true,
+    data: { token: newToken, user: updatedUser, order },
+  });
+});
+
+// --------------------------------------------------------
+// UPDATE ORDER STATUS
+// --------------------------------------------------------
+export const updateOrderStatus = catchAsync(async (req, res) => {
+  const merchantId = req.user.id;
+  const { orderId } = req.params;
+  const { status } = req.body;
+
+  const updatedOrder = await merchantService.updateOrderStatus(
+    merchantId,
+    orderId,
+    status
+  );
+
+  const updatedUser = await authService.getFullUserById(merchantId);
+  const newToken = generateInternalToken(updatedUser);
+
+  res.status(200).json({
+    success: true,
+    data: { token: newToken, user: updatedUser, order: updatedOrder },
+  });
+});
+

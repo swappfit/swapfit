@@ -403,18 +403,23 @@ model PaymentMethod {
 }
 
 model Transaction {
-  id             String   @id @default(cuid())
-  user           User     @relation(fields: [userId], references: [id])
-  userId         String
-  amount         Float
-  currency       String   @default("usd")
-  description    String
-  status         String
-  subscriptionId String?  @unique
-  createdAt      DateTime @default(now())
+  id              String   @id @default(cuid())
+  user            User     @relation(fields: [userId], references: [id])
+  userId          String
+  orderId         String?        // optional, linked to Order
+  subscriptionId  String? @unique // optional, linked to Subscription
+  amount          Float
+  currencyCode    String   @default("USD")
+  paymentProvider String?        // e.g., 'chargebee'
+  paymentStatus   String?        // e.g., 'success', 'failed'
+  referenceId     String?        // external reference id
+  description     String?        // optional, but can add default text if needed
+  createdAt       DateTime @default(now())
 
   @@index([userId])
+  @@index([orderId])
 }
+
 
 model Product {
   id          String     @id @default(cuid())
@@ -447,26 +452,34 @@ model CartItem {
 }
 
 model Order {
-  id          String      @id @default(cuid())
-  user        User        @relation(fields: [userId], references: [id])
-  userId      String
-  totalAmount Float
-  status      String
-  items       OrderItem[]
-  createdAt   DateTime    @default(now())
-  chargebeeInvoiceId   String? @unique
+  id           String      @id @default(cuid())
+  user         User        @relation(fields: [userId], references: [id])
+  userId       String
+  totalAmount  Float
+  sellerId     String?
+  status       String
+  items        OrderItem[]
+  createdAt    DateTime    @default(now())
+  invoiceId    String?     @unique
+  customerId   String?     // Add this
+  currencyCode String?     // Add this
   @@index([userId])
 }
 
+
 model OrderItem {
-  id        String @id @default(cuid())
-  order     Order  @relation(fields: [orderId], references: [id])
-  orderId   String
-  productId String
-  name      String
-  price     Float
-  quantity  Int
+  id         String  @id @default(cuid())
+  order      Order   @relation(fields: [orderId], references: [id])
+  orderId    String
+  productId  String
+  name       String?        // optional, because webhook may not send
+  price      Float
+  quantity   Int
+  subtotal   Float?         // optional, can be calculated if needed
+  merchantId String?        // optional, from webhook
+  createdAt  DateTime @default(now())
 }
+
 
 model Booking {
   id          String   @id @default(cuid())

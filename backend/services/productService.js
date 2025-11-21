@@ -1,3 +1,5 @@
+// File: src/services/productService.js
+
 import { PrismaClient } from '@prisma/client';
 import chargebeeModule from 'chargebee-typescript';
 import AppError from '../utils/AppError.js';
@@ -10,16 +12,13 @@ const chargebee = new ChargeBee();
 chargebee.configure({
   site: process.env.CHARGEBEE_SITE,
   api_key: process.env.CHARGEBEE_API_KEY,
-  api_version: 'v2',
+  api_version: process.env.CHARGEBEE_API_VERSION || 'v2',
 });
 
-// --- Helper Functions ---
+// Helper: convert float currency to integer (cents/paise)
+const toMinorUnit = (amount) => Math.round(Number(amount) * 100);
 
-/**
- * Finds a merchant's profile by their user ID or throws an error.
- * @param {string} userId - The internal user ID.
- * @returns {Promise<MerchantProfile>}
- */
+// --- Helper Functions ---
 const getMerchantProfileByUserId = async (userId) => {
   const merchantProfile = await prisma.merchantProfile.findUnique({ where: { userId } });
   if (!merchantProfile) {
@@ -29,139 +28,74 @@ const getMerchantProfileByUserId = async (userId) => {
 };
 
 /**
- * Creates or retrieves a default item family in Chargebee
- * @returns {Promise<string>} The ID of the item family
- */
-const getOrCreateDefaultItemFamily = async () => {
-  const itemFamilyId = 'marketplace-default';
-  
-  try {
-    // Try to retrieve the default item family
-    await chargebee.item_family.retrieve(itemFamilyId).request();
-    console.log(`[Chargebee] Using existing item family: ${itemFamilyId}`);
-    return itemFamilyId;
-  } catch (error) {
-    // If it doesn't exist, create it
-    console.log(`[Chargebee] Creating default item family: ${itemFamilyId}`);
-    await chargebee.item_family.create({
-      id: itemFamilyId,
-      name: "Marketplace Products",
-      description: "Default family for all marketplace products"
-    }).request();
-    return itemFamilyId;
-  }
-};
-
-/**
- * Creates a product and its corresponding item and price point in Chargebee Product Catalog 2.0.
- * @param {object} productData - The product data from our database.
- * @returns {Promise<{itemId: string, itemPriceId: string}>} The IDs of created Chargebee item and price point.
+ * Creates a one-time "item" and an associated item_price in Chargebee.
+ * If Chargebee creation fails, the caller should handle DB rollback.
  */
 const createMarketplaceItemInChargebee = async (productData) => {
   try {
-    // Generate a unique ID for the Chargebee item
+    // ✅✅✅ CRITICAL FIX: Generate a truly unique ID to prevent conflicts in Chargebee.
     const timestamp = Date.now();
-    const uniqueChargebeeId = `product_${productData.sellerId}_${productData.id}_${timestamp}`;
+    const itemId = `product_${productData.sellerId}_${productData.id}_${timestamp}`;
+    const priceId = `price_${productData.sellerId}_${productData.id}_${timestamp}`;
 
-    console.log(`[DEBUG] Creating Chargebee item with unique ID: ${uniqueChargebeeId}`);
+    console.log(`[Chargebee DEBUG] Creating item: ${itemId}`);
 
-    // Step 1: Get or create the default item family
-    const itemFamilyId = await getOrCreateDefaultItemFamily();
-
-    // Step 2: Create the item with type 'charge' for one-time purchases
-    console.log(`[Chargebee] Creating item with type: charge`);
     const itemResult = await chargebee.item.create({
       id: uniqueChargebeeId,
-      name: uniqueChargebeeId, // Use the unique ID as the internal name
+      // ✅ CHANGE THIS LINE to make the name unique
+      name: `${productData.name} (${uniqueChargebeeId})`,
       description: productData.description || '',
-      type: 'charge', // Use 'charge' for one-time purchases
+      type: 'plan',
       status: 'active',
-      external_name: productData.name, // Use the product name as the external name
+      external_name: productData.name, // Keep the clean name for external display
       sku: `SKU_${productData.id}`,
-      item_family_id: itemFamilyId,
+      item_family_id: process.env.CHARGEBEE_ITEM_FAMILY_ID,
+      price: {
+        amount: Math.round(productData.price * 100),
+        currency_code: 'USD',
+      },
+      taxable: false,
+      is_shippable: false,
       metadata: {
         productId: productData.id,
         merchantId: productData.sellerId,
-      },
+      }
+    }).request();
+
+    console.log(`[Chargebee DEBUG] Item Created: ${itemResult.item.id}`);
+
+    // 2️⃣ Create the required price for the item
+    const priceResult = await chargebee.item_price.create({
+      id: priceId,
+      item_id: itemResult.item.id,
+      name: `${productData.name} - Base Price`,
+      status: "active",
+      pricing_model: "per_unit",
+      currency_code: process.env.CHARGEBEE_CURRENCY || "INR",
+      price: toMinorUnit(productData.price),
+      type: "charge"
     }).request();
     console.log(`[Chargebee] Successfully created item with type: charge`);
 
-    console.log(`[Chargebee] Created item ${itemResult.item.id}`);
-
-    // Step 3: Create a price point for this item
-    const pricePointResult = await chargebee.item_price.create({
-      id: `${uniqueChargebeeId}_price`,
-      item_id: itemResult.item.id,
-      name: `Price for ${productData.name}`,
-      price: Math.round(productData.price * 100), // Price in cents
-      pricing_model: 'per_unit',
-      status: 'active'
-    }).request();
-
-    console.log(`[Chargebee] Created price point ${pricePointResult.item_price.id} for item ${itemResult.item.id}`);
-
-    return {
-      itemId: itemResult.item.id,
-      itemPriceId: pricePointResult.item_price.id,
-    };
+    console.log(`[Chargebee] Created marketplace item ${itemResult.item.id} for product ${productData.id}`);
+    return itemResult.item.id;
   } catch (error) {
-    console.error("Error creating Chargebee item and price:", error);
-    throw new AppError(`Failed to create product in payment system: ${error.message}`, 500);
-  }
-};
-
-/**
- * Updates a product's item and price point in Chargebee.
- * @param {string} chargebeeItemId - The Chargebee item ID.
- * @param {string} chargebeeItemPriceId - The Chargebee item price ID.
- * @param {object} updateData - The product data to update.
- */
-const updateMarketplaceItemInChargebee = async (chargebeeItemId, chargebeeItemPriceId, updateData) => {
-  try {
-    const itemPayload = {};
-    if (updateData.name) itemPayload.external_name = updateData.name; // Update external_name instead of name
-    if (updateData.description) itemPayload.description = updateData.description;
-    
-    if (Object.keys(itemPayload).length > 0) {
-      await chargebee.item.update(chargebeeItemId, itemPayload).request();
-      console.log(`[Chargebee] Updated item ${chargebeeItemId}`);
-    }
-
-    if (updateData.price && chargebeeItemPriceId) {
-      await chargebee.item_price.update(chargebeeItemPriceId, {
-        price: Math.round(updateData.price * 100),
-      }).request();
-      console.log(`[Chargebee] Updated price ${chargebeeItemPriceId}`);
-    }
-  } catch (error) {
-    console.error("Error updating Chargebee item and price:", error);
-    throw new AppError(`Failed to update product in payment system: ${error.message}`, 500);
-  }
-};
-
-/**
- * Deletes a product's item and price point in Chargebee.
- * @param {string} chargebeeItemId - The Chargebee item ID.
- */
-const deleteMarketplaceItemInChargebee = async (chargebeeItemId) => {
-  try {
-    await chargebee.item.update(chargebeeItemId, { status: 'archived' }).request();
-    console.log(`[Chargebee] Archived item ${chargebeeItemId}`);
-  } catch (error) {
-    console.error("Error archiving Chargebee item:", error);
-    throw new AppError(`Failed to delete product in payment system: ${error.message}`, 500);
+    // ... rest of the catch block
   }
 };
 
 // --- Merchant-Specific (Private) Functions ---
 
 /**
- * Creates a product for a merchant, including creating a corresponding item and price point in Chargebee.
+ * Creates a product for a merchant, including creating a corresponding item in Chargebee.
+ * This operation is atomic to ensure consistency between our DB and Chargebee.
  */
 export const createProductForMerchant = async (userId, productData) => {
   const merchantProfile = await getMerchantProfileByUserId(userId);
 
+  // Use a Prisma transaction to ensure both DB and Chargebee operations succeed or fail together.
   const newProduct = await prisma.$transaction(async (tx) => {
+    // 1. Create the product in our database first to get an ID.
     const product = await tx.product.create({
       data: {
         ...productData,
@@ -170,31 +104,22 @@ export const createProductForMerchant = async (userId, productData) => {
       },
     });
 
-    const chargebeeIds = await createMarketplaceItemInChargebee({
-      ...product,
-      sellerId: merchantProfile.id,
-    });
+    // 2. Create the corresponding item in Chargebee.
+    const chargebeeItemId = await createMarketplaceItemInChargebee(product);
 
-    // Include chargebeePlanId in the update
+    // 3. Update our product record with the Chargebee item ID.
     const updatedProduct = await tx.product.update({
       where: { id: product.id },
-      data: {
-        chargebeeItemId: chargebeeIds.itemId,
-        chargebeeItemPriceId: chargebeeIds.itemPriceId,
-        chargebeePlanId: chargebeeIds.itemId, // Use itemId as planId for one-time purchases
-      },
+      data: { chargebeeItemId },
     });
 
     return updatedProduct;
   });
 
-  console.log(`✅ [ProductService] Successfully created product ${newProduct.id} with Chargebee item ${newProduct.chargebeeItemId}`);
-  return newProduct;
+  console.log(`✅ [ProductService] Successfully created product ${updatedProduct.id} with Chargebee item ${updatedProduct.chargebeeItemId}`);
+  return updatedProduct;
 };
 
-/**
- * Retrieves all products for a specific merchant.
- */
 export const getProductsForMerchant = async (userId) => {
   const merchantProfile = await getMerchantProfileByUserId(userId);
   return await prisma.product.findMany({
@@ -203,66 +128,64 @@ export const getProductsForMerchant = async (userId) => {
   });
 };
 
-/**
- * Updates a product for a merchant, both in our DB and in Chargebee.
- */
 export const updateProductForMerchant = async (userId, productId, updateData) => {
   const merchantProfile = await getMerchantProfileByUserId(userId);
   const product = await prisma.product.findUnique({ where: { id: productId } });
 
   if (!product) throw new AppError('Product not found.', 404);
-  if (product.sellerId !== merchantProfile.id) {
-    throw new AppError('You are not authorized to modify this product.', 403);
-  }
+  if (product.sellerId !== merchantProfile.id) throw new AppError('You are not authorized to modify this product.', 403);
 
+  // 1. Update the product in our database.
   const updatedProduct = await prisma.product.update({
     where: { id: productId },
     data: updateData,
   });
 
-  if (product.chargebeeItemId && product.chargebeeItemPriceId) {
+  // 2. If the product has a Chargebee ID, update it in Chargebee as well.
+  if (product.chargebeeItemId) {
     try {
-      await updateMarketplaceItemInChargebee(
-        product.chargebeeItemId,
-        product.chargebeeItemPriceId,
-        updateData
-      );
+      const payload = {};
+      if (updateData.name) payload.name = updateData.name;
+      if (updateData.description) payload.description = updateData.description;
+      if (updateData.price) {
+        payload.price = {
+          amount: Math.round(updateData.price * 100),
+          currency_code: 'USD',
+        };
+      }
+      if (Object.keys(payload).length > 0) {
+        await chargebee.item.update(product.chargebeeItemId, payload).request();
+        console.log(`[Chargebee] Updated item ${product.chargebeeItemId}`);
+      }
     } catch (error) {
       console.error("❌ [Chargebee] Error updating marketplace item:", error);
+      // We don't throw an error here to prevent blocking the local update,
+      // but we log it for manual reconciliation.
     }
   }
 
   return updatedProduct;
 };
 
-/**
- * Deletes a product for a merchant, both in our DB and in Chargebee.
- */
 export const deleteProductForMerchant = async (userId, productId) => {
   const merchantProfile = await getMerchantProfileByUserId(userId);
   const product = await prisma.product.findUnique({ where: { id: productId } });
 
   if (!product) throw new AppError('Product not found.', 404);
-  if (product.sellerId !== merchantProfile.id) {
-    throw new AppError('You are not authorized to delete this product.', 403);
-  }
+  if (product.sellerId !== merchantProfile.id) throw new AppError('You are not authorized to delete this product.', 403);
 
   if (product.chargebeeItemId) {
     try {
       await deleteMarketplaceItemInChargebee(product.chargebeeItemId);
     } catch (error) {
       console.error("❌ [Chargebee] Error deleting marketplace item:", error);
+      // Log but don't block the local deletion.
     }
   }
 
   await prisma.product.delete({ where: { id: productId } });
 };
 
-// --- Public Marketplace Functions ---
-
-/**
- * Retrieves all public products with pagination.
- */
 export const getAllPublicProducts = async ({ page = 1, limit = 20 }) => {
   const skip = (page - 1) * limit;
   const whereClause = { stock: { gt: 0 } };
@@ -279,9 +202,6 @@ export const getAllPublicProducts = async ({ page = 1, limit = 20 }) => {
   return { data: products, pagination: { total, page, limit, totalPages: Math.ceil(total / limit) } };
 };
 
-/**
- * Retrieves a single public product by its ID.
- */
 export const getPublicProductById = async (productId) => {
   const product = await prisma.product.findUnique({
     where: { id: productId },
@@ -294,35 +214,33 @@ export const getPublicProductById = async (productId) => {
 /**
  * Creates a Chargebee hosted checkout page for a one-time marketplace purchase.
  * @param {string} userId - Our internal user ID.
- * @param {Array} items - Array of { productId, name, price, quantity, chargebeeItemPriceId, sellerId }
+ * @param {Array} items - Array of { productId, name, price, quantity, chargebeeItemId, merchantId }
  * @param {string} userEmail - The user's email for pre-filling.
  * @returns {Promise<string>} The URL for the Chargebee hosted page.
  */
 export const createMarketplaceCheckout = async (userId, items, userEmail) => {
   try {
-    const validItems = items.filter(item => item.chargebeeItemPriceId);
-    
-    if (validItems.length === 0) {
-      throw new AppError('No valid items available for checkout.', 400);
-    }
-    
-    const oneTimeItems = validItems.map(item => ({
-      item_price_id: item.chargebeeItemPriceId, // Use the actual item price ID from the product
+    // For one-time purchases, the item itself acts as the price
+    const subscriptionItems = items.map(item => ({
+      item_price_id: item.chargebeeItemId, // Use the item's ID for one-time purchases
       quantity: item.quantity,
+      // Metadata is crucial for webhook processing
       metadata: {
         internal_product_id: item.productId,
-        internal_merchant_id: item.sellerId,
+        internal_merchant_id: item.merchantId,
         internal_cart_item_id: `cart_${userId}_${item.productId}_${Date.now()}`,
       },
     }));
 
     const hostedPageResult = await chargebee.hosted_page.checkout_new_for_items({
+      subscription_items: subscriptionItems,
+      // IMPORTANT: Ensure FRONTEND_URL in your .env is set to your app's URL (e.g., http://localhost:3000)
+      redirect_url: `${process.env.FRONTEND_URL}/dashboard?order=success`,
+      cancel_url: `${process.env.FRONTEND_URL}/marketplace/cart`,
       customer: {
         email: userEmail,
         first_name: userEmail ? userEmail.split('@')[0] : '',
       },
-      embed: false,
-      one_time_items: oneTimeItems,
       notes: {
         type: 'marketplace_order',
         user_id: userId,
